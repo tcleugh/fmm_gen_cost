@@ -97,7 +97,7 @@ class FastMapMatch {
   };
   /**
    * Match a trajectory to the road network
-   * @param  traj   input trajector data
+   * @param  traj   input trajectory data
    * @param  config configuration of map matching algorithm
    * @return map matching result
    */
