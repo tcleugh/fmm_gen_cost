@@ -26,6 +26,7 @@ struct NetworkConfig{
   std::string id; /**< id field/column name */
   std::string source; /**< source field/column name */
   std::string target; /**< target field/column name */
+  // TODO Add weight here
 
   /**
    * Check if the input is shapefile format

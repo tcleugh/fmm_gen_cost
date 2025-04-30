@@ -59,6 +59,7 @@ class UBODTGenAppConfig
   CONFIG::NetworkConfig network_config; /**< Network configuration */
   double delta; /**< Upper-bound of the routing result */
   std::string result_file; /**< Result file */
+    // TODO Add weight here
   int log_level = 2; /**< Level level. 0-trace,1-debug,2-info,3-warn,4-err,
                          5-critical,6-off */
   bool use_omp = false; /**< If true, parallel computing performed */

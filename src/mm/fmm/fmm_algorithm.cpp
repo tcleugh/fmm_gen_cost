@@ -255,20 +255,20 @@ double FastMapMatch::get_sp_dist(
   const Candidate *ca, const Candidate *cb, double reverse_tolerance) {
   double sp_dist = 0;
   if (ca->edge->id == cb->edge->id && ca->offset <= cb->offset) {
-    sp_dist = cb->offset - ca->offset;
+    sp_dist = cb->offset - ca->offset;  // TODO Add weight here
   } else if (ca->edge->id == cb->edge->id &&
-    ca->offset - cb->offset < ca->edge->length * reverse_tolerance) {
+    ca->offset - cb->offset < ca->edge->length * reverse_tolerance) {  // TODO Add weight here
     sp_dist = 0;
   }
   else if (ca->edge->target == cb->edge->source) {
     // Transition on the same OD nodes
-    sp_dist = ca->edge->length - ca->offset + cb->offset;
+    sp_dist = ca->edge->length - ca->offset + cb->offset;  // TODO Add weight here
   } else {
     Record *r = ubodt_->look_up(ca->edge->target, cb->edge->source);
     // No sp path exist from O to D.
     if (r == nullptr) return std::numeric_limits<double>::infinity();
     // calculate original SP distance
-    sp_dist = r->cost + ca->edge->length - ca->offset + cb->offset;
+    sp_dist = r->cost + ca->edge->length - ca->offset + cb->offset;  // TODO Add weight here
   }
   return sp_dist;
 }

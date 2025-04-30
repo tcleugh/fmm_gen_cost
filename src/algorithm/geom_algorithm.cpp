@@ -191,7 +191,7 @@ std::vector<double> FMM::ALGORITHM::calc_length_to_end_vec(
   return result;
 }
 
-void FMM::ALGORITHM::closest_point_on_segment(
+void FMM::ALGORITHM::closest_point_on_segment(  // TODO Add weight here
     double x, double y, double x1, double y1, double x2, double y2,
     double *dist, double *offset) {
   double L2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
@@ -210,7 +210,7 @@ void FMM::ALGORITHM::closest_point_on_segment(
   double prj_x = x1 + ratio * (x1_x2);
   double prj_y = y1 + ratio * (y1_y2);
   *offset = std::sqrt((prj_x - x1) * (prj_x - x1) +
-      (prj_y - y1) * (prj_y - y1));
+      (prj_y - y1) * (prj_y - y1));  // TODO Add weight here
   *dist = std::sqrt((prj_x - x) * (prj_x - x) + (prj_y - y) * (prj_y - y));
 } // closest_point_on_segment
 
@@ -218,7 +218,7 @@ void FMM::ALGORITHM::closest_point_on_segment(
     double x, double y, double x1, double y1,
     double x2, double y2, double *dist,
     double *offset, double *closest_x,
-    double *closest_y) {
+    double *closest_y) {  // TODO Add weight here
   double L2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
   if (L2 == 0.0) {
     *dist = std::sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
@@ -237,7 +237,7 @@ void FMM::ALGORITHM::closest_point_on_segment(
   double prj_x = x1 + ratio * (x1_x2);
   double prj_y = y1 + ratio * (y1_y2);
   *offset = std::sqrt((prj_x - x1) * (prj_x - x1) +
-      (prj_y - y1) * (prj_y - y1));
+      (prj_y - y1) * (prj_y - y1));  // TODO Add weight here
   *dist = std::sqrt((prj_x - x) * (prj_x - x) + (prj_y - y) * (prj_y - y));
   *closest_x = prj_x;
   *closest_y = prj_y;
@@ -245,7 +245,7 @@ void FMM::ALGORITHM::closest_point_on_segment(
 
 void FMM::ALGORITHM::linear_referencing(
     double px, double py, const FMM::CORE::LineString &linestring,
-    double *result_dist, double *result_offset) {
+    double *result_dist, double *result_offset) {  // TODO Add weight here
   int Npoints = linestring.get_num_points();
   double min_dist = DBL_MAX;
   double final_offset = DBL_MAX;
@@ -264,19 +264,19 @@ void FMM::ALGORITHM::linear_referencing(
                              &temp_min_dist, &temp_min_offset);
     if (temp_min_dist < min_dist) {
       min_dist = temp_min_dist;
-      final_offset = length_parsed + temp_min_offset;
+      final_offset = length_parsed + temp_min_offset;  // TODO Add weight here
     }
     length_parsed += std::sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
     ++i;
   }
   *result_dist = min_dist;
-  *result_offset = final_offset;
+  *result_offset = final_offset;  // TODO Add weight here
 } // linear_referencing
 
 void FMM::ALGORITHM::linear_referencing(
     double px, double py, const FMM::CORE::LineString &linestring,
     double *result_dist, double *result_offset,
-    double *proj_x, double *proj_y) {
+    double *proj_x, double *proj_y) {  // TODO Add weight here
   int Npoints = linestring.get_num_points();
   double min_dist = DBL_MAX;
   double temp_x = 0, temp_y = 0;
@@ -297,7 +297,7 @@ void FMM::ALGORITHM::linear_referencing(
                              &temp_x, &temp_y);
     if (temp_min_dist < min_dist) {
       min_dist = temp_min_dist;
-      final_offset = length_parsed + temp_min_offset;
+      final_offset = length_parsed + temp_min_offset;  // TODO Add weight here
       *proj_x = temp_x;
       *proj_y = temp_y;
     }

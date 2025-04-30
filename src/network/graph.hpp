@@ -27,6 +27,7 @@ struct EdgeProperty
 {
   EdgeIndex index; /**< Index of the edge */
   double length; /**< length of the edge */
+  // TODO Add weight here
 };
 
 /**

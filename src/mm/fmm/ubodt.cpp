@@ -91,18 +91,18 @@ C_Path UBODT::construct_complete_path(int traj_id, const TGOpath &path,
     const Candidate *b = path[i + 1]->c;
     SPDLOG_DEBUG("Check point {} a {} b {}", i, a->edge->id, b->edge->id);
     if ((a->edge->id != b->edge->id) || (a->offset - b->offset >
-        a->edge->length * reverse_tolerance)) {
+        a->edge->length * reverse_tolerance)) {  // TODO Add weight here
       // segs stores edge index
       auto segs = look_sp_path(a->edge->target, b->edge->source);
       // No transition exist in UBODT
       if (segs.empty() && a->edge->target != b->edge->source) {
         SPDLOG_DEBUG("Edges not found connecting a b");
         SPDLOG_DEBUG("reverse movement {} tolerance {}",
-          a->offset - b->offset, a->edge->length * reverse_tolerance);
+          a->offset - b->offset, a->edge->length * reverse_tolerance);  // TODO Add weight here
         SPDLOG_WARN("Traj {} unmatched as edge {} L {} offset {}"
           " and edge {} L {} offset {} disconnected",
           traj_id, a->edge->id, a->edge->length, a->offset,
-          b->edge->id, b->edge->length, b->offset);
+          b->edge->id, b->edge->length, b->offset);  // TODO Add weight here
 
         indices->clear();
         return C_Path();
@@ -174,7 +174,7 @@ long UBODT::estimate_ubodt_rows(const std::string &filename) {
 int UBODT::find_prime_number(double value) {
   std::vector<int> prime_numbers = {
       5003, 10039, 20029, 50047, 100669, 200003, 500000,
-      1000039, 2000083, 5000101, 10000103, 20000033};
+      1000039, 2000083, 5000101, 10000103, 20000033};  // TODO Add larger primes?
   int N = prime_numbers.size();
   for (int i = 0; i < N; ++i) {
     if (value <= prime_numbers[i]) {

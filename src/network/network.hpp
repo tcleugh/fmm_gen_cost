@@ -57,15 +57,16 @@ public:
    *  @param source_name: the name of the source field
    *  @param target_name: the name of the target field
    *  @param mode: mode name, only applies to OSM network
-   *
+   *  // TODO Add weight here ?and remove mode?
    */
   Network(const std::string &filename,
           const std::string &id_name = "id",
           const std::string &source_name = "source",
           const std::string &target_name = "target"
+          // TODO Add weight here
         );
   Network(const CONFIG::NetworkConfig &config):Network(
-    config.file,config.id,config.source,config.target){};
+    config.file,config.id,config.source,config.target){};  // TODO Add weight here
   /**
    * Get number of nodes in the network
    * @return number of nodes
@@ -188,7 +189,7 @@ public:
    */
   static bool candidate_compare(const MM::Candidate &a, const MM::Candidate &b);
   void add_edge(EdgeID edge_id, NodeID source, NodeID target,
-    const FMM::CORE::LineString &geom);
+    const FMM::CORE::LineString &geom);  // TODO Add weight here
 private:
   void read_ogr_file(const std::string &filename,
                      const std::string &id_name,
