@@ -47,7 +47,6 @@ void UBODTGenAppConfig::load_arg(int argc, char **argv) {
   options.add_options()
     ("delta", "Upperbound distance",
     cxxopts::value<double>()->default_value("3000.0"))
-    // TODO Add weight here
     ("o,output", "Output file name",
     cxxopts::value<std::string>()->default_value(""))
     ("l,log_level", "Log level", cxxopts::value<int>()->default_value("2"))
@@ -64,7 +63,6 @@ void UBODTGenAppConfig::load_arg(int argc, char **argv) {
   network_config =  NetworkConfig::load_from_arg(result);
   log_level = result["log_level"].as<int>();
   delta = result["delta"].as<double>();
-  // TODO Add weight here
   use_omp = result.count("use_omp")>0;
   if (result.count("help")>0) {
     help_specified = true;
@@ -76,7 +74,6 @@ void UBODTGenAppConfig::print() const {
   SPDLOG_INFO("----    Print configuration   ----");
   network_config.print();
   SPDLOG_INFO("Delta {}",delta);
-  // TODO Add weight here
   SPDLOG_INFO("Output file {}",result_file);
   SPDLOG_INFO("Log level {}",UTIL::LOG_LEVESLS[log_level]);
   SPDLOG_INFO("Use omp {}",(use_omp ? "true" : "false"));
@@ -88,7 +85,6 @@ void UBODTGenAppConfig::print_help() {
   oss << "ubodt_gen argument lists:\n";
   NetworkConfig::register_help(oss);
   oss << "--delta (optional) <double>: upperbound (3000.0)\n";
-  // TODO Add weight here
   oss << "-o/--output (required) <string>: Output file name\n";
   oss << "-l/--log_level (optional) <int>: log level (2)\n";
   oss << "--use_omp: use OpenMP or not\n";
@@ -119,7 +115,6 @@ bool UBODTGenAppConfig::validate() const {
     SPDLOG_CRITICAL("Delta {} should be positive");
     return false;
   }
-  // TODO Add weight here
   SPDLOG_INFO("Validating done.");
   return true;
 }

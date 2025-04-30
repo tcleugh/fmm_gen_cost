@@ -30,9 +30,10 @@ bool Network::candidate_compare(const Candidate &a, const Candidate &b) {
 Network::Network(const std::string &filename,
                  const std::string &id_name,
                  const std::string &source_name,
-                 const std::string &target_name) {  // TODO Add weight here
+                 const std::string &target_name,
+                 const std::string &weight_name) {
   if (FMM::UTIL::check_file_extension(filename, "shp")) {
-    read_ogr_file(filename,id_name,source_name,target_name);  // TODO Add weight here
+    read_ogr_file(filename,id_name,source_name,target_name,weight_name);
   } else {
     std::string message = (boost::format("Network file not supported %1%") % filename).str();
     SPDLOG_CRITICAL(message);
@@ -40,7 +41,7 @@ Network::Network(const std::string &filename,
   }
 };
 
-void Network::add_edge(EdgeID edge_id, NodeID source, NodeID target,  // TODO add weight here
+void Network::add_edge(EdgeID edge_id, NodeID source, NodeID target, double weight,
                        const FMM::CORE::LineString &geom){
   NodeIndex s_idx, t_idx;
   if (node_map.find(source) == node_map.end()) {
@@ -61,14 +62,15 @@ void Network::add_edge(EdgeID edge_id, NodeID source, NodeID target,  // TODO ad
     t_idx = node_map[target];
   }
   EdgeIndex index = edges.size();
-  edges.push_back({index, edge_id, s_idx, t_idx, geom.get_length(), geom});  // TODO Add weight here
+  edges.push_back({index, edge_id, s_idx, t_idx, geom.get_length() * weight, geom});
   edge_map.insert({edge_id, index});
 };
 
 void Network::read_ogr_file(const std::string &filename,
                             const std::string &id_name,
                             const std::string &source_name,
-                            const std::string &target_name) {  // TODO Add weight here
+                            const std::string &target_name,
+                            const std::string &weight_name) {
   SPDLOG_INFO("Read network from file {}", filename);
   OGRRegisterAll();
   GDALDataset *poDS = (GDALDataset *) GDALOpenEx(
@@ -89,12 +91,12 @@ void Network::read_ogr_file(const std::string &filename,
   int id_idx = ogrFDefn->GetFieldIndex(id_name.c_str());
   int source_idx = ogrFDefn->GetFieldIndex(source_name.c_str());
   int target_idx = ogrFDefn->GetFieldIndex(target_name.c_str());
-  // TODO Add weight here
-  if (source_idx < 0 || target_idx < 0 || id_idx < 0) {
+  int weight_idx = ogrFDefn->GetFieldIndex(weight_name.c_str());
+  if (source_idx < 0 || target_idx < 0 || id_idx < 0 || weight_idx < 0) {
     std::string error_message = fmt::format(
-      "Field not found: {} index {}, {} index {}, {} index {}",  // TODO Add weight here
+      "Field not found: {} index {}, {} index {}, {} index {}, {} index {}",
       id_name, id_idx, source_name, source_idx,
-      target_name, target_idx);  // TODO Add weight here
+      target_name, target_idx, weight_name, weight_idx);
     SPDLOG_CRITICAL(error_message);
     GDALClose(poDS);
     throw std::runtime_error(error_message);
@@ -130,7 +132,7 @@ void Network::read_ogr_file(const std::string &filename,
     EdgeID id = ogrFeature->GetFieldAsInteger64(id_idx);
     NodeID source = ogrFeature->GetFieldAsInteger64(source_idx);
     NodeID target = ogrFeature->GetFieldAsInteger64(target_idx);
-    // TODO Add weight here
+    double weight = ogrFeature->GetFieldAsDouble(weight_idx);
     OGRGeometry *rawgeometry = ogrFeature->GetGeometryRef();
     LineString geom;
     if (rawgeometry->getGeometryType() == wkbLineString) {
@@ -162,7 +164,7 @@ void Network::read_ogr_file(const std::string &filename,
     } else {
       t_idx = node_map[target];
     }
-    edges.push_back({index, id, s_idx, t_idx, geom.get_length(), geom});  // TODO Add weight here
+    edges.push_back({index, id, s_idx, t_idx, geom.get_length() * weight, geom});
     edge_map.insert({id, index});
     ++index;
     OGRFeature::DestroyFeature(ogrFeature);
