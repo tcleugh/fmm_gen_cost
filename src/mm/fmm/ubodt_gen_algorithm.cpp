@@ -13,15 +13,15 @@ using namespace FMM::NETWORK;
 using namespace FMM::MM;
 
 std::string UBODTGenAlgorithm::generate_ubodt(
-  const std::string &filename, double delta,  // TODO Add weight here
+  const std::string &filename, double delta,
   bool binary, bool use_omp) const {
   std::ostringstream oss;
   std::chrono::steady_clock::time_point begin =
         std::chrono::steady_clock::now();
   if (use_omp){
-    precompute_ubodt_omp(filename, delta, binary);  // TODO Add weight here
+    precompute_ubodt_omp(filename, delta, binary);
   } else {
-    precompute_ubodt_single_thead(filename, delta, binary);  // TODO Add weight here
+    precompute_ubodt_single_thead(filename, delta, binary);
   }
   std::chrono::steady_clock::time_point end =
       std::chrono::steady_clock::now();
@@ -34,7 +34,7 @@ std::string UBODTGenAlgorithm::generate_ubodt(
 };
 
 void UBODTGenAlgorithm::precompute_ubodt_single_thead(
-    const std::string &filename, double delta, bool binary) const {  // TODO Add weight here
+    const std::string &filename, double delta, bool binary) const {
   int num_vertices = ng_.get_num_vertices();
   int step_size = num_vertices / 10;
   if (step_size < 10) step_size = 10;
@@ -48,7 +48,7 @@ void UBODTGenAlgorithm::precompute_ubodt_single_thead(
         SPDLOG_INFO("Progress {} / {}", source, num_vertices);
       PredecessorMap pmap;
       DistanceMap dmap;
-      ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);  // TODO Add weight here
+      ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);
       write_result_binary(oa, source, pmap, dmap);
     }
   } else {
@@ -58,7 +58,7 @@ void UBODTGenAlgorithm::precompute_ubodt_single_thead(
         SPDLOG_INFO("Progress {} / {}", source, num_vertices);
       PredecessorMap pmap;
       DistanceMap dmap;
-      ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);  // TODO Add weight here
+      ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);
       write_result_csv(myfile, source, pmap, dmap);
     }
   }
@@ -68,7 +68,7 @@ void UBODTGenAlgorithm::precompute_ubodt_single_thead(
 // Parallelly generate ubodt using OpenMP
 void UBODTGenAlgorithm::precompute_ubodt_omp(
     const std::string &filename, double delta,
-    bool binary) const {  // TODO Add weight here
+    bool binary) const {
   int num_vertices = ng_.get_num_vertices();
   int step_size = num_vertices / 10;
   if (step_size < 10) step_size = 10;
@@ -89,7 +89,7 @@ void UBODTGenAlgorithm::precompute_ubodt_omp(
         PredecessorMap pmap;
         DistanceMap dmap;
         std::stringstream node_output_buf;
-        ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);  // TODO Add weight here
+        ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);
         write_result_binary(oa, source, pmap, dmap);
       }
     }
@@ -107,7 +107,7 @@ void UBODTGenAlgorithm::precompute_ubodt_omp(
         PredecessorMap pmap;
         DistanceMap dmap;
         std::stringstream node_output_buf;
-        ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);  // TODO Add weight here
+        ng_.single_source_upperbound_dijkstra(source, delta, &pmap, &dmap);
         write_result_csv(myfile, source, pmap, dmap);
       }
     }

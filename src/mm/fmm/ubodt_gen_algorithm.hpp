@@ -27,7 +27,7 @@ public:
                     const NETWORK::NetworkGraph &graph) :
     network_(network), ng_(graph){
   };
-  std::string generate_ubodt(const std::string &filename, double delta,  // TODO Add weight here
+  std::string generate_ubodt(const std::string &filename, double delta,
                              bool binary = true, bool use_omp = true) const;
   /**
    * Run precomputation in a single thread and save result to a file
@@ -35,7 +35,7 @@ public:
    * @param delta    upper bound value
    * @param binary   whether store binary data or not
    */
-  void precompute_ubodt_single_thead(  // TODO Add weight here
+  void precompute_ubodt_single_thead(
     const std::string &filename, double delta, bool binary = true) const;
   /**
    * Run precomputation parallelly and save result to a file
@@ -43,7 +43,7 @@ public:
    * @param delta    upper bound value
    * @param binary   whether store binary data or not
    */
-  void precompute_ubodt_omp(const std::string &filename, double delta,  // TODO Add weight here
+  void precompute_ubodt_omp(const std::string &filename, double delta,
                             bool binary = true) const;
 private:
   /**

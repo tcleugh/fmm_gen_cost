@@ -91,18 +91,18 @@ C_Path UBODT::construct_complete_path(int traj_id, const TGOpath &path,
     const Candidate *b = path[i + 1]->c;
     SPDLOG_DEBUG("Check point {} a {} b {}", i, a->edge->id, b->edge->id);
     if ((a->edge->id != b->edge->id) || (a->offset - b->offset >
-        a->edge->length * reverse_tolerance)) {  // TODO Add weight here
+        a->edge->length * reverse_tolerance)) {
       // segs stores edge index
       auto segs = look_sp_path(a->edge->target, b->edge->source);
       // No transition exist in UBODT
       if (segs.empty() && a->edge->target != b->edge->source) {
         SPDLOG_DEBUG("Edges not found connecting a b");
         SPDLOG_DEBUG("reverse movement {} tolerance {}",
-          a->offset - b->offset, a->edge->length * reverse_tolerance);  // TODO Add weight here
+          a->offset - b->offset, a->edge->length * reverse_tolerance);
         SPDLOG_WARN("Traj {} unmatched as edge {} L {} offset {}"
           " and edge {} L {} offset {} disconnected",
           traj_id, a->edge->id, a->edge->length, a->offset,
-          b->edge->id, b->edge->length, b->offset);  // TODO Add weight here
+          b->edge->id, b->edge->length, b->offset);
 
         indices->clear();
         return C_Path();

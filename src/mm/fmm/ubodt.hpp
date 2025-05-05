@@ -26,7 +26,7 @@ struct Record {
   NETWORK::NodeIndex first_n; /**< next node visited from source to target */
   NETWORK::NodeIndex prev_n; /**< last node visited before target */
   NETWORK::EdgeIndex next_e; /**< next edge visited from source to target */
-  double cost; /**< distance from source to target */  // TODO Add weight here
+  double cost; /**< distance from source to target */
   Record *next; /**< the next record stored in hashtable */
 };
 

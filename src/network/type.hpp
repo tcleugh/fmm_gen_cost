@@ -51,7 +51,6 @@ struct Edge
   NodeIndex source; /**< source node index */
   NodeIndex target; /**< target node index */
   double length; /**< length of the edge polyline */
-  // TODO Add weight here
   FMM::CORE::LineString geom; /**< the edge geometry */
 };
 

@@ -20,18 +20,18 @@ DummyGraph::DummyGraph(const Traj_Candidates &traj_candidates,
     const Point_Candidates &pcs = traj_candidates[i];
     for (const Candidate &c:pcs) {
       NodeIndex n = c.index;
-      add_edge(c.edge->source, n, c.edge->index, c.offset);  // TODO Add weight here
-      add_edge(n,c.edge->target, c.edge->index, c.edge->length - c.offset);  // TODO Add weight here
+      add_edge(c.edge->source, n, c.edge->index, c.offset);
+      add_edge(n,c.edge->target, c.edge->index, c.edge->length - c.offset);
       cur_cmap->insert(std::make_pair(c.edge->index,&c));
       auto iter = prev_cmap->find(c.edge->index);
       if (iter!=prev_cmap->end()) {
         if (iter->second->offset <= c.offset) {
           add_edge(iter->second->index,
-                   n, c.edge->index, c.offset-iter->second->offset);  // TODO Add weight here
+                   n, c.edge->index, c.offset-iter->second->offset);
         } else if (iter->second->offset - c.offset <
                    c.edge->length * reverse_tolerance) {
           add_edge(iter->second->index,
-                   n, c.edge->index, 0);  // TODO Add weight here
+                   n, c.edge->index, 0);
         }
       }
     }
@@ -97,7 +97,7 @@ void DummyGraph::print_node_index_map() const {
 }
 
 void DummyGraph::add_edge(NodeIndex source, NodeIndex target,
-                          EdgeIndex edge_index, double cost) {  // TODO Add weight here
+                          EdgeIndex edge_index, double cost) {
   // SPDLOG_TRACE("  Add edge {} {} e {} cost {}",
   //               source,target,edge_index,cost);
   auto search1 = internal_index_map.find(source);
@@ -148,7 +148,7 @@ const {
   return g_.get_edge_id(get_edge_index(u,v,cost));
 }
 
-std::vector<CompEdgeProperty> CompositeGraph::out_edges(NodeIndex u) const {  // TODO Add weight here
+std::vector<CompEdgeProperty> CompositeGraph::out_edges(NodeIndex u) const {
   std::vector<CompEdgeProperty> out_edges;
   OutEdgeIterator out_i, out_end;
   EdgeDescriptor e;

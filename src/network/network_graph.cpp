@@ -24,7 +24,7 @@ NetworkGraph::NetworkGraph(const Network &network_arg) : network(network_arg) {
     boost::tie(e, inserted) = boost::add_edge(edge.source, edge.target, g);
     // id is the FID read, id_attr is the external property in SHP
     g[e].index = edge.index;
-    g[e].length = edge.length;  // TODO Add weight here
+    g[e].length = edge.length;
   }
   num_vertices = boost::num_vertices(g);
   SPDLOG_INFO("Graph nodes {} edges {}", num_vertices, boost::num_edges(g));
@@ -96,9 +96,7 @@ std::vector<EdgeIndex> NetworkGraph::shortest_path_dijkstra(
   return back_track(source, target, pmap, dmap);
 }
 
-double NetworkGraph::calc_heuristic_dist(  
-  // TODO Add weight here maybe (need to find out where it is used - looks like astar below) 
-  // maybe not, as its used for comparsion min bound, ie euclidan fine
+double NetworkGraph::calc_heuristic_dist(
   const Point &p1, const Point &p2) const {
   return sqrt((p2.get<0>() - p1.get<0>()) * (p2.get<0>() - p1.get<0>()) +
               (p2.get<1>() - p1.get<1>()) * (p2.get<1>() - p1.get<1>()));

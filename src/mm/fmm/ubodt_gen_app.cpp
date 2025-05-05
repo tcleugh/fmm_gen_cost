@@ -20,7 +20,7 @@ void UBODTGenApp::run() const {
   SPDLOG_INFO("Write UBODT to file {}", config_.result_file);
   UBODTGenAlgorithm model(network_,ng_);
   bool binary = config_.is_binary_output();
-  std::string status = model.generate_ubodt(config_.result_file, config_.delta,  // TODO Add weight here
+  std::string status = model.generate_ubodt(config_.result_file, config_.delta,
       binary, config_.use_omp);
   std::chrono::steady_clock::time_point end =
       std::chrono::steady_clock::now();
