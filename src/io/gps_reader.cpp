@@ -140,7 +140,7 @@ CSVTrajectoryReader::CSVTrajectoryReader(const std::string &e_filename,
   if (timestamp_idx < 0) {
     SPDLOG_WARN("Timestamp column {} not found", timestamp_name);
   }
-  SPDLOG_INFO("Id index {} Geometry index {} Timstamp index {}",
+  SPDLOG_INFO("Id index {} Geometry index {} Timestamp index {}",
               id_idx, geom_idx, timestamp_idx);
 }
 

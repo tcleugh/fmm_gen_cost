@@ -8,6 +8,7 @@ void FMM::CONFIG::NetworkConfig::print() const{
   SPDLOG_INFO("ID name: {} ",id);
   SPDLOG_INFO("Source name: {} ",source);
   SPDLOG_INFO("Target name: {} ",target);
+  SPDLOG_INFO("Weight name: {} ",weight);
 };
 
 FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_xml(
@@ -16,7 +17,8 @@ FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_xml(
   std::string id = xml_data.get("config.input.network.id", "id");
   std::string source = xml_data.get("config.input.network.source","source");
   std::string target = xml_data.get("config.input.network.target","target");
-  return FMM::CONFIG::NetworkConfig{file, id, source, target};
+  std::string weight = xml_data.get("config.input.network.weight","weight");
+  return FMM::CONFIG::NetworkConfig{file, id, source, target, weight};
 };
 
 FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_arg(
@@ -25,7 +27,8 @@ FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_arg(
   std::string id = arg_data["network_id"].as<std::string>();
   std::string source = arg_data["source"].as<std::string>();
   std::string target = arg_data["target"].as<std::string>();
-  return FMM::CONFIG::NetworkConfig{file, id, source, target};
+  std::string weight = arg_data["weight"].as<std::string>();
+  return FMM::CONFIG::NetworkConfig{file, id, source, target, weight};
 };
 
 void FMM::CONFIG::NetworkConfig::register_arg(cxxopts::Options &options){
@@ -37,7 +40,9 @@ void FMM::CONFIG::NetworkConfig::register_arg(cxxopts::Options &options){
   ("source","Network source name",
   cxxopts::value<std::string>()->default_value("source"))
   ("target","Network target name",
-  cxxopts::value<std::string>()->default_value("target"));
+  cxxopts::value<std::string>()->default_value("target"))
+  ("weight","Network weight name",
+    cxxopts::value<std::string>()->default_value("weight"));
 };
 
 void FMM::CONFIG::NetworkConfig::register_help(std::ostringstream &oss){
@@ -45,6 +50,7 @@ void FMM::CONFIG::NetworkConfig::register_help(std::ostringstream &oss){
   oss<<"--network_id (optional) <string>: Network id name (id)\n";
   oss<<"--source (optional) <string>: Network source name (source)\n";
   oss<<"--target (optional) <string>: Network target name (target)\n";
+  oss<<"--weight (optional) <string>: Network weight name (weight)\n";
 };
 
 bool FMM::CONFIG::NetworkConfig::is_shapefile_format() const {

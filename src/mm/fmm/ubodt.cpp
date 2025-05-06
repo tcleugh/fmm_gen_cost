@@ -174,7 +174,7 @@ long UBODT::estimate_ubodt_rows(const std::string &filename) {
 int UBODT::find_prime_number(double value) {
   std::vector<int> prime_numbers = {
       5003, 10039, 20029, 50047, 100669, 200003, 500000,
-      1000039, 2000083, 5000101, 10000103, 20000033};
+      1000039, 2000083, 5000101, 10000103, 20000033};  // TODO Add larger primes?
   int N = prime_numbers.size();
   for (int i = 0; i < N; ++i) {
     if (value <= prime_numbers[i]) {

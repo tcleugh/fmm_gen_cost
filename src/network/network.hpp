@@ -56,16 +56,16 @@ public:
    *  @param id_name: the name of the id field
    *  @param source_name: the name of the source field
    *  @param target_name: the name of the target field
-   *  @param mode: mode name, only applies to OSM network
-   *
+   *  @param weight_name: the name of the weight field
    */
   Network(const std::string &filename,
           const std::string &id_name = "id",
           const std::string &source_name = "source",
-          const std::string &target_name = "target"
+          const std::string &target_name = "target",
+          const std::string &weight_name = "weight"
         );
   Network(const CONFIG::NetworkConfig &config):Network(
-    config.file,config.id,config.source,config.target){};
+    config.file,config.id,config.source,config.target, config.weight){};
   /**
    * Get number of nodes in the network
    * @return number of nodes
@@ -187,13 +187,14 @@ public:
    * @return true if a.dist<b.dist
    */
   static bool candidate_compare(const MM::Candidate &a, const MM::Candidate &b);
-  void add_edge(EdgeID edge_id, NodeID source, NodeID target,
+  void add_edge(EdgeID edge_id, NodeID source, NodeID target, double weight,
     const FMM::CORE::LineString &geom);
 private:
   void read_ogr_file(const std::string &filename,
                      const std::string &id_name,
                      const std::string &source_name,
-                     const std::string &target_name);
+                     const std::string &target_name,
+                     const std::string &weight_name);
   /**
    * Concatenate a linestring segs to a linestring line, used in the
    * function complete_path_to_geometry
