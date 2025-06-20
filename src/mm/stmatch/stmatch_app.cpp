@@ -11,7 +11,7 @@ using namespace FMM::MM;
 
 void STMATCHApp::run() {
   auto start_time = UTIL::get_current_time();
-  STMATCH mm_model(network_, ng_);
+  STMATCH mm_model(network_, ng_, priority_network_);
   const STMATCHConfig &stmatch_config =
       config_.stmatch_config;
   IO::GPSReader reader(config_.gps_config);

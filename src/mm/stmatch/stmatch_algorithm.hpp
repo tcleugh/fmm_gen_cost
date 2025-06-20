@@ -87,8 +87,8 @@ public:
   /**
    * Create a stmatch model from network and graph
    */
-  STMATCH(const NETWORK::Network &network, const NETWORK::NetworkGraph &graph) :
-    network_(network), graph_(graph) {
+  STMATCH(const NETWORK::Network &network, const NETWORK::NetworkGraph &graph, std::shared_ptr<NETWORK::Network> priority_network) :
+    network_(network), graph_(graph), priority_network_(priority_network) {
   };
   /**
    * Match a wkt linestring to the road network.
@@ -176,6 +176,7 @@ protected:
 private:
   const NETWORK::Network &network_;
   const NETWORK::NetworkGraph &graph_;
+  std::shared_ptr<NETWORK::Network> priority_network_;
 };// STMATCH
 }
 } // FMM

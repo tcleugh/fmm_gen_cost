@@ -127,8 +127,27 @@ MatchResult STMATCH::match_traj(const Trajectory &traj,
                                 const STMATCHConfig &config) {
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
-  Traj_Candidates tc = network_.search_tr_cs_knn(
+  Traj_Candidates base_tc = network_.search_tr_cs_knn(
     traj.geom, config.k, config.radius);
+    
+  Traj_Candidates tc;
+  if (priority_network_) {
+    Traj_Candidates extra_tc = priority_network_->search_tr_cs_knn(
+      traj.geom, config.k, config.radius
+    ); 
+
+    for (int i = 0; i < base_tc.size(); ++i) {
+      Point_Candidates combined = base_tc[i];
+      for (int j = 0; j < extra_tc[i].size(); ++i) {
+        combined.push_back(extra_tc[i][j]);
+      }
+      tc.push_back(combined);
+    }
+
+  } else {
+    Traj_Candidates tc(base_tc);
+  }
+
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
   SPDLOG_DEBUG("Generate dummy graph");
