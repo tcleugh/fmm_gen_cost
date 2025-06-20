@@ -12,6 +12,7 @@
 
 #include "config/gps_config.hpp"
 #include "config/network_config.hpp"
+#include "config/priority_network_config.hpp"
 #include "config/result_config.hpp"
 #include "mm/stmatch/stmatch_algorithm.hpp"
 
@@ -58,6 +59,7 @@ class STMATCHAppConfig
    */
   bool validate() const;
   CONFIG::NetworkConfig network_config; /**< Network data configuration */
+  CONFIG::PriorityNetworkConfig priority_network_config; /**< Network data configuration */
   CONFIG::GPSConfig gps_config; /**< GPS data configuration */
   CONFIG::ResultConfig result_config; /**< Result configuration */
   STMATCHConfig stmatch_config; /**< Map matching configuration */

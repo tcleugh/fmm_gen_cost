@@ -35,6 +35,7 @@ void STMATCHAppConfig::load_xml(const std::string &file){
   boost::property_tree::ptree tree;
   boost::property_tree::read_xml(file, tree);
   network_config = NetworkConfig::load_from_xml(tree);
+  priority_network_config = PriorityNetworkConfig::load_from_xml(tree);
   gps_config = GPSConfig::load_from_xml(tree);
   result_config = CONFIG::ResultConfig::load_from_xml(tree);
   stmatch_config = STMATCHConfig::load_from_xml(tree);
@@ -49,6 +50,7 @@ void STMATCHAppConfig::load_arg(int argc, char **argv){
   cxxopts::Options options("stmatch_config", "Configuration parser");
   // Register options
   NetworkConfig::register_arg(options);
+  PriorityNetworkConfig::register_arg(options);
   GPSConfig::register_arg(options);
   ResultConfig::register_arg(options);
   STMATCHConfig::register_arg(options);
@@ -65,6 +67,7 @@ void STMATCHAppConfig::load_arg(int argc, char **argv){
   auto result = options.parse(argc, argv);
   // Read options
   network_config = NetworkConfig::load_from_arg(result);
+  priority_network_config = PriorityNetworkConfig::load_from_arg(result);
   gps_config = GPSConfig::load_from_arg(result);
   result_config = CONFIG::ResultConfig::load_from_arg(result);
   stmatch_config = STMATCHConfig::load_from_arg(result);
@@ -80,6 +83,7 @@ void STMATCHAppConfig::load_arg(int argc, char **argv){
 void STMATCHAppConfig::print() const {
   SPDLOG_INFO("----   Print configuration    ----");
   network_config.print();
+  priority_network_config.print();
   gps_config.print();
   result_config.print();
   stmatch_config.print();
@@ -93,6 +97,7 @@ void STMATCHAppConfig::print_help(){
   std::ostringstream oss;
   oss<<"stmatch argument lists:\n";
   NetworkConfig::register_help(oss);
+  PriorityNetworkConfig::register_help(oss);
   GPSConfig::register_help(oss);
   STMATCHConfig::register_help(oss);
   ResultConfig::register_help(oss);
@@ -112,6 +117,11 @@ bool STMATCHAppConfig::validate() const {
   }
   if (!network_config.validate()) {
     return false;
+  }
+  if (priority_network_config.use_priority_links()){
+    if (!priority_network_config.validate()) {
+        return false;
+    }
   }
   if (!stmatch_config.validate()) {
     return false;
