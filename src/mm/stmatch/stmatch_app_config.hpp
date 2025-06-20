@@ -57,10 +57,10 @@ class STMATCHAppConfig
    * Check the validity of the configuration
    */
   bool validate() const;
-  CONFIG::NetworkConfig network_config; /**< Network data configuraiton */
-  CONFIG::GPSConfig gps_config; /**< GPS data configuraiton */
-  CONFIG::ResultConfig result_config; /**< Result configuraiton */
-  STMATCHConfig stmatch_config; /**< Map matching configuraiton */
+  CONFIG::NetworkConfig network_config; /**< Network data configuration */
+  CONFIG::GPSConfig gps_config; /**< GPS data configuration */
+  CONFIG::ResultConfig result_config; /**< Result configuration */
+  STMATCHConfig stmatch_config; /**< Map matching configuration */
   bool use_omp = false; /**< If true, parallel map matching performed */
   bool help_specified = false; /**< Help is specified or not */
   int log_level = 2; /**< log level, 0-trace,1-debug,2-info,
