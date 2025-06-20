@@ -12,6 +12,7 @@
 
 #include "network/type.hpp"
 #include "config/network_config.hpp"
+#include "config/priority_network_config.hpp"
 #include "core/gps.hpp"
 #include "mm/mm_type.hpp"
 #include <ogrsf_frmts.h> // C++ API for GDAL
@@ -65,7 +66,9 @@ public:
           const std::string &weight_name = "weight"
         );
   Network(const CONFIG::NetworkConfig &config):Network(
-    config.file,config.id,config.source,config.target, config.weight){};
+    config.file, config.id, config.source, config.target, config.weight){};
+  Network(const CONFIG::PriorityNetworkConfig &config):Network(
+    config.file, config.id, config.source, config.target, config.weight){};
   /**
    * Get number of nodes in the network
    * @return number of nodes

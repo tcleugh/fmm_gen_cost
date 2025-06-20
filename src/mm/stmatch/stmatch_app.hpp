@@ -29,6 +29,11 @@ public:
   STMATCHApp(const STMATCHAppConfig &config):
       config_(config),
       network_(config_.network_config),
+      priority_network_(
+        config_.priority_network_config.use_priority_links() ?
+        std::make_shared<NETWORK::Network>(config_.priority_network_config) : 
+        nullptr
+      ),
       ng_(network_){};
   /**
    * Run the stmatch program
@@ -38,6 +43,7 @@ public:
   const STMATCHAppConfig &config_;
   NETWORK::Network network_;
   NETWORK::NetworkGraph ng_;
+  std::shared_ptr<NETWORK::Network> priority_network_;
 };
 }
 }
