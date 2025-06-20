@@ -186,6 +186,10 @@ int Network::get_edge_count() const {
   return edges.size();
 }
 
+int Network::get_num_vertices() const {
+  return num_vertices;
+}
+
 // Get the edge vector
 const std::vector<Edge> &Network::get_edges() const {
   return edges;
@@ -237,12 +241,12 @@ void Network::build_rtree_index() {
 }
 
 Traj_Candidates Network::search_tr_cs_knn(Trajectory &trajectory, std::size_t k,
-                                          double radius) const {
-  return search_tr_cs_knn(trajectory.geom, k, radius);
+                                          double radius, bool allowed_to_fail) const {
+  return search_tr_cs_knn(trajectory.geom, k, radius, allowed_to_fail);
 }
 
 Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
-                                          double radius) const {
+                                          double radius, bool allowed_to_fail) const {
   int NumberPoints = geom.get_num_points();
   Traj_Candidates tr_cs(NumberPoints);
   unsigned int current_candidate_index = num_vertices;
@@ -282,7 +286,9 @@ Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
     SPDLOG_DEBUG("Candidate count point {}: {} (filter to k)",i,pcs.size());
     if (pcs.empty()) {
       SPDLOG_DEBUG("Candidate not found for point {}: {} {}",i,px,py);
-      return Traj_Candidates();
+      if (!allowed_to_fail) {
+        return Traj_Candidates();
+      }
     }
     // KNN part
     if (pcs.size() <= k) {
@@ -298,7 +304,7 @@ Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
       tr_cs[i][m].index = current_candidate_index + m;
     }
     current_candidate_index += tr_cs[i].size();
-    // SPDLOG_TRACE("current_candidate_index {}",current_candidate_index);
+    SPDLOG_TRACE("current_candidate_index {}",current_candidate_index);
   }
   return tr_cs;
 }

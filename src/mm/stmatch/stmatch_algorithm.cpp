@@ -128,24 +128,38 @@ MatchResult STMATCH::match_traj(const Trajectory &traj,
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
   Traj_Candidates base_tc = network_.search_tr_cs_knn(
-    traj.geom, config.k, config.radius);
+    traj.geom, config.k, config.radius, false);
     
   Traj_Candidates tc;
   if (priority_network_) {
     Traj_Candidates extra_tc = priority_network_->search_tr_cs_knn(
-      traj.geom, config.k, config.radius
+      traj.geom, config.k, config.radius, true
     ); 
 
+    // combine priority network and full network candidates
     for (int i = 0; i < base_tc.size(); ++i) {
       Point_Candidates combined = base_tc[i];
-      for (int j = 0; j < extra_tc[i].size(); ++i) {
-        combined.push_back(extra_tc[i][j]);
+      if (!extra_tc[i].empty()) {
+        for (int j = 0; j < extra_tc[i].size(); ++i) {
+          combined.push_back(extra_tc[i][j]);
+        }
       }
       tc.push_back(combined);
     }
 
+    // have to reindex all the candidates due to additions from the priority network
+    int current_candidate_index = network_.get_num_vertices();
+    for (int i = 0; i < tc.size(); ++i) {
+      for (int j = 0; j < tc[i].size(); ++j) {
+        NodeIndex old_index = tc[i][j].index;
+        tc[i][j].index = current_candidate_index++;
+        SPDLOG_TRACE("Fixed candidate index from: {}, to: {}", old_index, tc[i][j].index );
+
+      }
+    }
+
   } else {
-    Traj_Candidates tc(base_tc);
+    Traj_Candidates tc = base_tc;
   }
 
   SPDLOG_DEBUG("Trajectory candidate {}", tc);

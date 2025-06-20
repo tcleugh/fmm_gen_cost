@@ -70,6 +70,11 @@ public:
   Network(const CONFIG::PriorityNetworkConfig &config):Network(
     config.file, config.id, config.source, config.target, config.weight){};
   /**
+   * Get number of vertices in the network
+   * @return number of vertices
+   */
+  int get_num_vertices() const;
+  /**
    * Get number of nodes in the network
    * @return number of nodes
    */
@@ -129,7 +134,7 @@ public:
    *
    */
   FMM::MM::Traj_Candidates search_tr_cs_knn(
-    FMM::CORE::Trajectory &trajectory, std::size_t k, double radius) const;
+    FMM::CORE::Trajectory &trajectory, std::size_t k, double radius, bool allowed_to_fail) const;
 
   /**
    * Search for k nearest neighboring (KNN) candidates of a
@@ -143,7 +148,7 @@ public:
    */
   FMM::MM::Traj_Candidates search_tr_cs_knn(const FMM::CORE::LineString &geom,
                                             std::size_t k,
-                                            double radius) const;
+                                            double radius, bool allowed_to_fail) const;
   /**
    * Get edge geometry
    * @param edge_id edge id

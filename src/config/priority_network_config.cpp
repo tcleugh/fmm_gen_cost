@@ -31,16 +31,8 @@ FMM::CONFIG::PriorityNetworkConfig FMM::CONFIG::PriorityNetworkConfig::load_from
 
 void FMM::CONFIG::PriorityNetworkConfig::register_arg(cxxopts::Options &options){
   options.add_options()
-  ("network","Priority network file name",
-  cxxopts::value<std::string>()->default_value(""))
-  ("network_id","Network id name",
-  cxxopts::value<std::string>()->default_value("id"))
-  ("source","Network source name",
-  cxxopts::value<std::string>()->default_value("source"))
-  ("target","Network target name",
-  cxxopts::value<std::string>()->default_value("target"))
-  ("weight","Network weight name",
-    cxxopts::value<std::string>()->default_value("weight"));
+  ("priority_network","Priority network file name",
+  cxxopts::value<std::string>()->default_value(""));
 };
 
 void FMM::CONFIG::PriorityNetworkConfig::register_help(std::ostringstream &oss){
