@@ -295,17 +295,25 @@ void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr,
     std::vector<double> distances = shortest_path_upperbound(
       level, cg, source, targets, delta);
     for (auto iter_b = lb_ptr->begin(); iter_b != lb_ptr->end(); ++iter_b) {
-      int i = std::distance(lb_ptr->begin(),iter_b);
-      double tp = TransitionGraph::calc_tp(distances[i], eu_dist);
+      int i = std::distance(lb_ptr->begin(), iter_b);
+      
+      double path_distance;
+      if (iter_a->c->edge->id == iter_b->c->edge->id) {
+        path_distance = eu_dist;
+      } else {
+        path_distance = distances[i];
+      }
+
+      double tp = TransitionGraph::calc_tp(path_distance, eu_dist);
       double temp = iter_a->cumu_prob + log(tp) + log(iter_b->ep);
       SPDLOG_TRACE("L {} f {} t {} sp {} dist {} tp {} ep {} fcp {} tcp {}",
         level, iter_a->c->edge->id,iter_b->c->edge->id,
-        distances[i], eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
+        path_distance, eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
         temp);
       if (temp >= iter_b->cumu_prob) {
         iter_b->cumu_prob = temp;
         iter_b->prev = &(*iter_a);
-        iter_b->sp_dist = distances[i];
+        iter_b->sp_dist = path_distance;
         iter_b->tp = tp;
       }
     }
@@ -401,8 +409,10 @@ C_Path STMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices,
     const Candidate *a = opath[i]->c;
     const Candidate *b = opath[i + 1]->c;
     // SPDLOG_TRACE("Check a {} b {}", a->edge->id, b->edge->id);
-    if ((a->edge->id != b->edge->id) ||
-        (a->offset-b->offset>a->edge->length * reverse_tolerance)) {
+    if ((a->edge->id != b->edge->id) 
+    // don't do self loops, our traces are noisy
+    //||(a->offset - b->offset > a->edge->length * reverse_tolerance)
+      ) {
       auto segs = graph_.shortest_path_dijkstra(a->edge->target,
                                                 b->edge->source);
       // No transition found
