@@ -40,12 +40,15 @@ struct STMATCHConfig {
    * @param vmax_arg the maximum speed of the vehicle in map unit/second
    * @param factor_arg a factor multiplied with vmax*deltaT to constrain the
    * search in stmatch.
+   * @param r_arg the expanded search radius, in map unit, which is the same as
+   * GPS data and network data, used as a fallback when intial search fails.
    */
   STMATCHConfig(int k_arg = 8, double r_arg = 300, double gps_error_arg = 50,
                 double vmax_arg = 30, double factor_arg = 1.5,
-                double reverse_tolerance_arg = 0.0);
+                double reverse_tolerance_arg = 0.0, double extra_r_arg = 300);
   int k; /**< number of candidates */
   double radius; /**< search radius for candidates, unit is map_unit*/
+  double extra_radius; /**< search radius for candidates when initial search radius returns no candidates, unit is map_unit*/
   double gps_error; /**< GPS error, unit is map_unit */
   double vmax; /**< maximum speed of the vehicle, unit is map_unit/second */
   double factor; /**< factor multiplied to vmax*deltaT to

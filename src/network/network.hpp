@@ -121,12 +121,13 @@ public:
    *  @param trajectory: input trajectory
    *  @param k: the number of candidates
    *  @param radius: the search radius
+   *  @param extra_radius: the expanded search radius if initial search fails
    *  @return a 2D vector of Candidates containing
    *  the candidates selected for each point in a trajectory
    *
    */
   FMM::MM::Traj_Candidates search_tr_cs_knn(
-    FMM::CORE::Trajectory &trajectory, std::size_t k, double radius) const;
+    FMM::CORE::Trajectory &trajectory, std::size_t k, double radius, double extra_radius) const;
 
   /**
    * Search for k nearest neighboring (KNN) candidates of a
@@ -135,12 +136,13 @@ public:
    * @param geom
    * @param k number of candidates
    * @param radius search radius
+   * @param extra_radius: the expanded search radius if initial search fails
    * @return a 2D vector of Candidates containing
    * the candidates selected for each point in a linestring
    */
   FMM::MM::Traj_Candidates search_tr_cs_knn(const FMM::CORE::LineString &geom,
                                             std::size_t k,
-                                            double radius) const;
+                                            double radius, double extra_radius) const;
   /**
    * Get edge geometry
    * @param edge_id edge id

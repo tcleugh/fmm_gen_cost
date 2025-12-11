@@ -237,12 +237,12 @@ void Network::build_rtree_index() {
 }
 
 Traj_Candidates Network::search_tr_cs_knn(Trajectory &trajectory, std::size_t k,
-                                          double radius) const {
-  return search_tr_cs_knn(trajectory.geom, k, radius);
+                                          double radius, double extra_radius) const {
+  return search_tr_cs_knn(trajectory.geom, k, radius, extra_radius);
 }
 
 Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
-                                          double radius) const {
+                                          double radius, double extra_radius) const {
   int NumberPoints = geom.get_num_points();
   Traj_Candidates tr_cs(NumberPoints);
   unsigned int current_candidate_index = num_vertices;
@@ -282,6 +282,10 @@ Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
     SPDLOG_DEBUG("Candidate count point {}: {} (filter to k)",i,pcs.size());
     if (pcs.empty()) {
       SPDLOG_DEBUG("Candidate not found for point {}: {} {}",i,px,py);
+      if (extra_radius > radius) {
+        SPDLOG_DEBUG("Falling back to expanded radius: {}", extra_radius);
+        return search_tr_cs_knn(geom, k, extra_radius, extra_radius);
+      }
       return Traj_Candidates();
     }
     // KNN part

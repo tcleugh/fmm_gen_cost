@@ -86,7 +86,7 @@ MatchResult FastMapMatch::match_traj(const Trajectory &traj,
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
   Traj_Candidates tc = network_.search_tr_cs_knn(
-    traj.geom, config.k, config.radius);
+    traj.geom, config.k, config.radius, 0.0);
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
   SPDLOG_DEBUG("Generate transition graph");
