@@ -37,15 +37,15 @@ TEST_CASE( "Network is tested", "[network]" ) {
 
   SECTION( "search_tr_cs_knn" ) {
     LineString line = wkt2linestring("LineString(2.1 1.9,2.1 2.8)");
-    Traj_Candidates trcs = network.search_tr_cs_knn(line,3,0.15);
+    Traj_Candidates trcs = network.search_tr_cs_knn(line, 3, 0.15, 0.0);
     REQUIRE(trcs.size()==2);
     REQUIRE(trcs[0].size()==3);
     REQUIRE(trcs[1].size()==2);
-    trcs = network.search_tr_cs_knn(line,3,0.05);
+    trcs = network.search_tr_cs_knn(line, 3, 0.05, 0.0);
     REQUIRE(trcs.size()==0);
 
     line = wkt2linestring("LineString(2.0 1.0,2.1 2.8)");
-    trcs = network.search_tr_cs_knn(line,3,0.05);
+    trcs = network.search_tr_cs_knn(line, 3, 0.05, 0.0);
     REQUIRE(trcs.size()==0);
   }
 }

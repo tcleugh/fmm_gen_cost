@@ -15,16 +15,16 @@ using namespace FMM::PYTHON;
 
 STMATCHConfig::STMATCHConfig(
   int k_arg, double r_arg, double gps_error_arg,
-  double vmax_arg, double factor_arg, double reverse_tolerance_arg):
-  k(k_arg), radius(r_arg), gps_error(gps_error_arg),
+  double vmax_arg, double factor_arg, double reverse_tolerance_arg, double extra_r_arg):
+  k(k_arg), radius(r_arg), extra_radius(extra_r_arg), gps_error(gps_error_arg),
   vmax(vmax_arg), factor(factor_arg),
   reverse_tolerance(reverse_tolerance_arg) {
 };
 
 void STMATCHConfig::print() const {
   SPDLOG_INFO("STMATCHAlgorithmConfig");
-  SPDLOG_INFO("k {} radius {} gps_error {} vmax {} factor {}",
-              k, radius, gps_error, vmax, factor);
+  SPDLOG_INFO("k {} radius {} gps_error {} vmax {} factor {} extra_radius {}",
+              k, radius, gps_error, vmax, factor, extra_radius);
   SPDLOG_INFO("reverse_tolerance {}",reverse_tolerance);
 };
 
@@ -37,7 +37,9 @@ STMATCHConfig STMATCHConfig::load_from_xml(
   double factor = xml_data.get("config.parameters.factor", 1.5);
   double reverse_tolerance =
     xml_data.get("config.parameters.reverse_tolerance", 0.0);
-  return STMATCHConfig{k, radius, gps_error, vmax, factor,reverse_tolerance};
+  double extra_radius =
+    xml_data.get("config.parameters.extra_radius", radius);  
+  return STMATCHConfig{k, radius, gps_error, vmax, factor,reverse_tolerance, extra_radius};
 };
 
 STMATCHConfig STMATCHConfig::load_from_arg(
@@ -48,7 +50,8 @@ STMATCHConfig STMATCHConfig::load_from_arg(
   double vmax = arg_data["vmax"].as<double>();
   double factor = arg_data["factor"].as<double>();
   double reverse_tolerance = arg_data["reverse_tolerance"].as<double>();
-  return STMATCHConfig{k, radius, gps_error, vmax, factor, reverse_tolerance};
+  double extra_radius = arg_data["extra_radius"].as<double>();
+  return STMATCHConfig{k, radius, gps_error, vmax, factor, reverse_tolerance, extra_radius};
 };
 
 void STMATCHConfig::register_arg(cxxopts::Options &options){
@@ -64,7 +67,9 @@ void STMATCHConfig::register_arg(cxxopts::Options &options){
     ("factor","Scale factor",
     cxxopts::value<double>()->default_value("1.5"))
     ("reverse_tolerance","Ratio of reverse movement allowed",
-      cxxopts::value<double>()->default_value("0.0"));
+      cxxopts::value<double>()->default_value("0.0"))
+    ("extra_radius","Expanded search radius",
+    cxxopts::value<double>()->default_value("300.0"));
 }
 
 void STMATCHConfig::register_help(std::ostringstream &oss){
@@ -78,14 +83,16 @@ void STMATCHConfig::register_help(std::ostringstream &oss){
     " Maximum speed (unit: network_data_unit/s) (30)\n";
   oss<<"--reverse_tolerance (optional) <double>: proportion "
       "of reverse movement allowed on an edge\n";
+  oss<<"--extra_radius (optional) <double>: additional search "
+      "radius if inital fails (network data unit) (300)\n";
 };
 
 bool STMATCHConfig::validate() const {
   if (gps_error <= 0 || radius <= 0 || k <= 0 || vmax <= 0 || factor <= 0
-      || reverse_tolerance<0) {
+      || reverse_tolerance < 0 || extra_radius <= 0) {
     SPDLOG_CRITICAL("Invalid mm parameter k {} r {} gps error {} "
-        "vmax {} f {} reverse_tolerance {}",
-                    k, radius, gps_error, vmax, factor, reverse_tolerance);
+        "vmax {} f {} reverse_tolerance {} extra_radius {}",
+                    k, radius, gps_error, vmax, factor, reverse_tolerance, extra_radius);
     return false;
   }
   return true;
@@ -128,7 +135,7 @@ MatchResult STMATCH::match_traj(const Trajectory &traj,
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
   Traj_Candidates tc = network_.search_tr_cs_knn(
-    traj.geom, config.k, config.radius);
+    traj.geom, config.k, config.radius, config.extra_radius);
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
   SPDLOG_DEBUG("Generate dummy graph");
