@@ -54,6 +54,20 @@ struct Edge
   FMM::CORE::LineString geom; /**< the edge geometry */
 };
 
+/**
+ * Road turn class (used to ban specificd turns)
+ */
+struct Turn
+{
+  EdgeIndex in_edge;
+  EdgeIndex out_edge;
+};
+
+/**
+ * Vector of Turn
+ */
+typedef std::vector<Turn> TurnVec;
+
 } // NETWORK
 } // MM
 #endif /* MM_TYPES_HPP */

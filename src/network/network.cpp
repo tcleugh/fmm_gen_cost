@@ -28,6 +28,7 @@ bool Network::candidate_compare(const Candidate &a, const Candidate &b) {
 }
 
 Network::Network(const std::string &filename,
+                 const std::string &turn_ban_file,
                  const std::string &id_name,
                  const std::string &source_name,
                  const std::string &target_name,
@@ -39,6 +40,7 @@ Network::Network(const std::string &filename,
     SPDLOG_CRITICAL(message);
     throw std::runtime_error(message);
   }
+  read_turn_ban_file(turn_ban_file);
 };
 
 void Network::add_edge(EdgeID edge_id, NodeID source, NodeID target, double weight,
@@ -177,6 +179,44 @@ void Network::read_ogr_file(const std::string &filename,
   build_rtree_index();
   SPDLOG_INFO("Read network done.");
 }    // Network constructor
+
+void Network::read_turn_ban_file(const std::string &filename) {
+  SPDLOG_INFO("Read turn bans from file {}", filename);
+
+  std::string intermediate;
+  EdgeID in_edge_id = -1;
+  EdgeID out_edge_id = -1;
+  std::string line;
+  char delim = ',';
+
+  std::fstream fs(filename);
+
+  // skip header line
+  if (fs.peek() != EOF) {
+   std::getline(fs, line);
+  }
+
+  // load turn bans line by line
+  while (fs.peek() != EOF) {
+    std::getline(fs, line);
+    std::stringstream ss(line);
+
+    int index = 0;
+    while (std::getline(ss, intermediate, delim)) {
+      if (index == 0) {
+        in_edge_id = std::stoi(intermediate);
+      }
+      if (index == 1) {
+        out_edge_id = std::stoi(intermediate);
+      }
+      ++index;
+    }
+    SPDLOG_TRACE("Loading turn ban from inEdge {} to outEdge {}",
+              in_edge_id, out_edge_id);
+    turn_bans.push_back({get_edge_index(in_edge_id), get_edge_index(out_edge_id)});
+  };
+  SPDLOG_INFO("Read turn bans done");
+}
 
 int Network::get_node_count() const {
   return node_id_vec.size();

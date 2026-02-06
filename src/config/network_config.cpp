@@ -9,6 +9,7 @@ void FMM::CONFIG::NetworkConfig::print() const{
   SPDLOG_INFO("Source name: {} ",source);
   SPDLOG_INFO("Target name: {} ",target);
   SPDLOG_INFO("Weight name: {} ",weight);
+  SPDLOG_INFO("Turn ban file name: {} ",turn_ban_file);
 };
 
 FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_xml(
@@ -18,7 +19,8 @@ FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_xml(
   std::string source = xml_data.get("config.input.network.source","source");
   std::string target = xml_data.get("config.input.network.target","target");
   std::string weight = xml_data.get("config.input.network.weight","weight");
-  return FMM::CONFIG::NetworkConfig{file, id, source, target, weight};
+  std::string turn_ban_file = xml_data.get<std::string>("config.input.network.file");
+  return FMM::CONFIG::NetworkConfig{file, turn_ban_file, id, source, target, weight};
 };
 
 FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_arg(
@@ -28,12 +30,15 @@ FMM::CONFIG::NetworkConfig FMM::CONFIG::NetworkConfig::load_from_arg(
   std::string source = arg_data["source"].as<std::string>();
   std::string target = arg_data["target"].as<std::string>();
   std::string weight = arg_data["weight"].as<std::string>();
-  return FMM::CONFIG::NetworkConfig{file, id, source, target, weight};
+  std::string turn_ban_file = arg_data["turn_ban_file"].as<std::string>();
+  return FMM::CONFIG::NetworkConfig{file, turn_ban_file, id, source, target, weight};
 };
 
 void FMM::CONFIG::NetworkConfig::register_arg(cxxopts::Options &options){
   options.add_options()
   ("network","Network file name",
+  cxxopts::value<std::string>()->default_value(""))
+  ("turn_ban_file","Turn ban file name",
   cxxopts::value<std::string>()->default_value(""))
   ("network_id","Network id name",
   cxxopts::value<std::string>()->default_value("id"))
@@ -42,11 +47,12 @@ void FMM::CONFIG::NetworkConfig::register_arg(cxxopts::Options &options){
   ("target","Network target name",
   cxxopts::value<std::string>()->default_value("target"))
   ("weight","Network weight name",
-    cxxopts::value<std::string>()->default_value("weight"));
+  cxxopts::value<std::string>()->default_value("weight"));
 };
 
 void FMM::CONFIG::NetworkConfig::register_help(std::ostringstream &oss){
   oss<<"--network (required) <string>: Network file name\n";
+  oss<<"--turn_ban_file (required) <string>: Turn ban file name\n";
   oss<<"--network_id (optional) <string>: Network id name (id)\n";
   oss<<"--source (optional) <string>: Network source name (source)\n";
   oss<<"--target (optional) <string>: Network target name (target)\n";
@@ -65,9 +71,17 @@ bool FMM::CONFIG::NetworkConfig::validate() const {
     return false;
   }
   bool shapefile_format = is_shapefile_format();
-  if (shapefile_format){
-    return true;
+  if (!shapefile_format){
+    SPDLOG_CRITICAL("Network format not recognized {}",file);
+    return false;
   }
-  SPDLOG_CRITICAL("Network format not recognized {}",file);
-  return false;
+  if (!UTIL::file_exists(turn_ban_file)){
+    SPDLOG_CRITICAL("Turn ban file not found {}",turn_ban_file);
+    return false;
+  }
+  if (!FMM::UTIL::check_file_extension(turn_ban_file,"csv")){
+    SPDLOG_CRITICAL("Turn ban format not recognized {}",turn_ban_file);
+    return false;
+  }
+  return true;
 }

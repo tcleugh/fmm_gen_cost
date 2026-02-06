@@ -57,15 +57,17 @@ public:
    *  @param source_name: the name of the source field
    *  @param target_name: the name of the target field
    *  @param weight_name: the name of the weight field
+   *  @param turn_ban_filename: the path to a file containing banned edge pairs in csv format
    */
   Network(const std::string &filename,
+          const std::string &turn_ban_filename,
           const std::string &id_name = "id",
           const std::string &source_name = "source",
           const std::string &target_name = "target",
           const std::string &weight_name = "weight"
         );
   Network(const CONFIG::NetworkConfig &config):Network(
-    config.file,config.id,config.source,config.target, config.weight){};
+    config.file,config.turn_ban_file,config.id,config.source,config.target,config.weight){};
   /**
    * Get number of nodes in the network
    * @return number of nodes
@@ -195,6 +197,9 @@ private:
                      const std::string &source_name,
                      const std::string &target_name,
                      const std::string &weight_name);
+
+  void read_turn_ban_file(const std::string &filename);  
+
   /**
    * Concatenate a linestring segs to a linestring line, used in the
    * function complete_path_to_geometry
@@ -217,6 +222,7 @@ private:
   unsigned int num_vertices;
   NodeIndexMap node_map;
   EdgeIndexMap edge_map;
+  TurnVec turn_bans;
   std::vector<FMM::CORE::Point> vertex_points;
 }; // Network
 } // NETWORK
