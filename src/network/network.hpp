@@ -222,7 +222,7 @@ private:
   unsigned int num_vertices;
   NodeIndexMap node_map;
   EdgeIndexMap edge_map;
-  TurnVec turn_bans;
+  TurnSet turn_bans;
   std::vector<FMM::CORE::Point> vertex_points;
 }; // Network
 } // NETWORK

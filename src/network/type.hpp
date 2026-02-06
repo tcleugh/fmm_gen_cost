@@ -14,6 +14,7 @@
 #include <list>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include "core/geometry.hpp"
 
 namespace FMM {
@@ -62,11 +63,21 @@ struct Turn
   EdgeIndex in_edge;
   EdgeIndex out_edge;
 };
+struct TurnHash {
+  size_t operator()(const Turn& t) const noexcept {
+    return std::hash<long long>()(((long long)t.in_edge << 32) | t.out_edge);
+  }
+};
+struct TurnEq {
+  bool operator()(const Turn& a, const Turn& b) const noexcept {
+    return a.in_edge == b.in_edge && a.out_edge == b.out_edge;
+  }
+};
 
 /**
  * Vector of Turn
  */
-typedef std::vector<Turn> TurnVec;
+typedef std::unordered_set<Turn, TurnHash, TurnEq> TurnSet;
 
 } // NETWORK
 } // MM

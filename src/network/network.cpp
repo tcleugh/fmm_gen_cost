@@ -213,7 +213,7 @@ void Network::read_turn_ban_file(const std::string &filename) {
     }
     SPDLOG_TRACE("Loading turn ban from inEdge {} to outEdge {}",
               in_edge_id, out_edge_id);
-    turn_bans.push_back({get_edge_index(in_edge_id), get_edge_index(out_edge_id)});
+    turn_bans.insert({get_edge_index(in_edge_id), get_edge_index(out_edge_id)});
   };
   SPDLOG_INFO("Read turn bans done");
 }
