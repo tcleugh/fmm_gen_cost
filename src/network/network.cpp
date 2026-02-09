@@ -311,8 +311,10 @@ Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
                                     &dist, &offset, &closest_x, &closest_y);
       if (dist <= radius) {
         // index, offset, dist, edge, pseudo id, point
+        double edge_weight = (edge->length / edge->geom.get_length());
+        // SPDLOG_TRACE("Edge weight {}", edge_weight);
         Candidate c = {0,
-                       offset,
+                       offset * edge_weight, // apply edge weights to offsets
                        dist,
                        edge,
                        Point(closest_x, closest_y)};

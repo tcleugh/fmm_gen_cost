@@ -191,6 +191,15 @@ public:
   static bool candidate_compare(const MM::Candidate &a, const MM::Candidate &b);
   void add_edge(EdgeID edge_id, NodeID source, NodeID target, double weight,
     const FMM::CORE::LineString &geom);
+  /**
+   * Checks if two adjacent edges are part of a banned turn
+   * @param in_e in edge
+   * @param out_e out edge
+   * @return true in_e to out_e is a banned turn, false otherwise
+   */ 
+  bool is_turn_banned(EdgeIndex in_e, EdgeIndex out_e) const {
+    return turn_bans.find(Turn{in_e, out_e}) != turn_bans.end();
+  }
 private:
   void read_ogr_file(const std::string &filename,
                      const std::string &id_name,

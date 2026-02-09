@@ -75,7 +75,7 @@ struct TurnEq {
 };
 
 /**
- * Vector of Turn
+ * Set of Turns
  */
 typedef std::unordered_set<Turn, TurnHash, TurnEq> TurnSet;
 
