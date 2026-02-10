@@ -97,6 +97,9 @@ private:
         bool u_turn = (in.source == out.target) && (in.target == out.source);
         if (!opt_.allow_u_turns && u_turn) continue;
 
+        if (net_.is_turn_banned(in_e, out_e))
+            SPDLOG_TRACE("Turn banned {} -> {}", in_e, out_e);
+
         // turn bans
         if (net_.is_turn_banned(in_e, out_e)) continue;
 
@@ -236,9 +239,11 @@ Path shortest_edge_to_edge(const FMM::NETWORK::Network& net,
                            EdgeIndex start_e,
                            EdgeIndex goal_e,
                            bool allow_u_turns = true,
-                           bool include_start_edge_cost = true,
+                           bool include_start_edge_cost = false,
                            CostFn cost_fn = CostFn()) {
-  LinkGraph<CostFn> G(net, typename LinkGraph<CostFn>::BuildOptions{allow_u_turns}, cost_fn);
+  typename LinkGraph<CostFn>::BuildOptions opt;
+  opt.allow_u_turns = allow_u_turns;
+  LinkGraph<CostFn> G(net, opt, cost_fn);
 
   double seed_cost = include_start_edge_cost ? cost_fn(net.get_edge(start_e)) : 0.0;
 
@@ -253,162 +258,118 @@ Path shortest_edge_to_edge(const FMM::NETWORK::Network& net,
 }
 
 template<class CostFn = LengthCost>
-Path shortest_node_to_node(const FMM::NETWORK::Network& net,
-                           NodeIndex start_n,
-                           NodeIndex goal_n,
-                           bool allow_u_turns = true,
-                           CostFn cost_fn = CostFn()) {
-  typename LinkGraph<CostFn>::BuildOptions opt;
-  opt.allow_u_turns = allow_u_turns;                       
-  LinkGraph<CostFn> G(net, opt, cost_fn);
-
-  // seed with all edges leaving start node, cost = cost(out-edge)
-  std::vector<std::pair<EdgeIndex,double>> seeds;
-  for (const auto& e : net.get_edges()) {
-    if (e.source == start_n) {
-      seeds.emplace_back(e.index, cost_fn(e));
-    }
-  }
-  if (seeds.empty()) return {};
-
-  // target: any edge whose *target* is goal_n
-  auto isTarget = [&net, goal_n](EdgeIndex e) {
-    return net.get_edge(e).target == goal_n;
-  };
-
-  auto R = dijkstra(G, seeds, isTarget, /*stopAt*/ kNoEdge);
-
-  // choose best among edges that end at goal
-  double best = std::numeric_limits<double>::infinity();
-  EdgeIndex best_e = std::numeric_limits<EdgeIndex>::max();
-  for (size_t e = 0; e < R.dist.size(); ++e) {
-    if (!std::isfinite(R.dist[e])) continue;
-    if (net.get_edge(static_cast<EdgeIndex>(e)).target == goal_n && R.dist[e] < best) {
-      best = R.dist[e];
-      best_e = static_cast<EdgeIndex>(e);
-    }
-  }
-  if (best_e == std::numeric_limits<EdgeIndex>::max()) return {};
-
-  Path P = reconstruct_path(net, R.parent, best_e, /*with_nodes=*/true);
-  P.total_cost = best;
-  return P;
-}
-
-
-template<class CostFn = LengthCost>
-std::unordered_map<NodeIndex, Path>
-shortest_node_to_each_of(const FMM::NETWORK::Network& net,
-                         NodeIndex start_n,
-                         const std::vector<NodeIndex>& goal_nodes,
-                         bool allow_u_turns = true,
-                         CostFn cost_fn = CostFn())
+std::unordered_map<EdgeIndex, Path>
+shortest_edge_to_edges(const FMM::NETWORK::Network& net,
+                       EdgeIndex start_e,
+                       const std::vector<EdgeIndex>& goal_edges,
+                       bool allow_u_turns = true,
+                       bool include_start_edge_cost = false,
+                       CostFn cost_fn = CostFn())
 {
-  std::string line = "";
-  for (auto g : goal_nodes) {
-    line = line + std::to_string(g) + ",";
-  }
-  SPDLOG_TRACE("Starting path search from {} to {}", start_n, line);
-  std::unordered_map<NodeIndex, Path> out;
+  SPDLOG_TRACE("Starting path search from edge {} to edges {}", start_e, goal_edges);
+  std::unordered_map<EdgeIndex, Path> out;
 
-  if (goal_nodes.empty()) {
-    SPDLOG_TRACE("No goal nodes, exiting early");
+  // --- Handle no goals ---
+  if (goal_edges.empty()) {
+    SPDLOG_TRACE("No goal edges, exiting early");
     return out;
   }
-
-  std::vector<char> is_goal(net.get_node_count(), 0);
+  const size_t E = static_cast<size_t>(net.get_edge_count());
+  std::vector<char> is_goal(E, 0);
   size_t remaining = 0;
-  for (auto g : goal_nodes) {
+
+  // Mark unique goal edges
+  for (auto g : goal_edges) {
     if (g < is_goal.size() && !is_goal[g]) {
       is_goal[g] = 1;
       ++remaining;
-      out.emplace(g, Path{}); // create placeholders
+      out.emplace(g, Path{});
     }
   }
 
-//   // handle trivial direct matches
-//   for (NodeIndex g : goal_nodes) {
-//     if (g == start_n) {
-//       Path P;
-//       P.found = true;
-//       P.total_cost = 0.0;
-//       P.nodes = { start_n };
-//       out[g] = P;
-//       --remaining;
-//       is_goal[g] = 0;
-//     }
-//   }
-  if (remaining == 0) {
-    SPDLOG_TRACE("No goals remaining, exiting early");
-    return out;
+  // --- Trivial case: start edge is a target edge ---
+  if (is_goal[start_e]) {
+    Path P;
+    P.found = true;
+    P.total_cost = include_start_edge_cost ? cost_fn(net.get_edge(start_e)) : 0.0;
+
+    // Empty edge list
+    P.edges.clear();
+
+    // Node path has at least source->target of the start edge
+    const auto& es = net.get_edge(start_e);
+    P.nodes.push_back(es.source);
+    P.nodes.push_back(es.target);
+
+    out[start_e] = std::move(P);
+    is_goal[start_e] = 0;
+    --remaining;
+
+    // If that was the only goal, we are done
+    if (remaining == 0) {
+      SPDLOG_TRACE("No goals remaining, exiting early");
+      return out;
+    }
   }
 
+  // ---- Build link graph ----
   typename LinkGraph<CostFn>::BuildOptions opt;
   opt.allow_u_turns = allow_u_turns;
   LinkGraph<CostFn> G(net, opt, cost_fn);
 
-  // Seeds from start node
+  // Seed: cost of entering the start edge
+  double seed_cost = include_start_edge_cost ? cost_fn(net.get_edge(start_e)) : 0.0;
   std::vector<std::pair<EdgeIndex,double>> seeds;
-  for (const auto& e : net.get_edges()) {
-    if (e.source == start_n) seeds.emplace_back(e.index, cost_fn(e));
-  }
-  if (seeds.empty()) {
-    SPDLOG_TRACE("No seed edges, exiting early");
-    return out;
-  }
+  seeds.emplace_back(start_e, seed_cost);
 
-  // Custom Dijkstra loop here so we can early‑stop after all goals are settled
-  const size_t M = static_cast<size_t>(net.get_edge_count());
-  std::vector<double> dist(M, std::numeric_limits<double>::infinity());
-  std::vector<EdgeIndex> parent(M, std::numeric_limits<EdgeIndex>::max());
+  // --- Dijkstra state ---
+  std::vector<double> dist(E, std::numeric_limits<double>::infinity());
+  std::vector<EdgeIndex> parent(E, std::numeric_limits<EdgeIndex>::max());
   using QItem = std::pair<double, EdgeIndex>;
   std::priority_queue<QItem, std::vector<QItem>, std::greater<QItem>> pq;
-  std::vector<char> settled(M, 0);
+  std::vector<char> settled(E, 0);
 
-  for (size_t i = 0; i < seeds.size(); ++i) {
-    const EdgeIndex e = seeds[i].first;
-    const double d0   = seeds[i].second;
-    dist[e] = d0; parent[e] = std::numeric_limits<EdgeIndex>::max();
-    pq.emplace(d0, e);
-  }
+  // Seed PQ
+  dist[start_e]   = seed_cost;
+  parent[start_e] = std::numeric_limits<EdgeIndex>::max();
+  pq.emplace(seed_cost, start_e);
 
+  SPDLOG_TRACE("Starting main dijkstra loop {} goals to find", remaining);
+  // ---- Multi-goal Dijkstra ----
   while (!pq.empty() && remaining > 0) {
     const QItem top = pq.top(); pq.pop();
     const double    du = top.first;
     const EdgeIndex u  = top.second;
+
     if (settled[u]) continue;
     settled[u] = 1;
 
-    const auto& ue = net.get_edge(u);
-    if (is_goal[ue.target]) {
-      // produce a path for this goal if not already set (or if this is better)
-      auto &slot = out[ue.target];
+    // If this edge is a goal, we have its optimal dist
+    if (u < is_goal.size() && is_goal[u]) {
+      Path& slot = out[u];
       if (!slot.found || du < slot.total_cost) {
         slot = reconstruct_path(net, parent, u, /*with_nodes=*/true);
         slot.total_cost = du;
         slot.found = true;
       }
-      // We can mark this goal as satisfied once its first settling arrives (which is optimal).
-      if (slot.total_cost == du) {
-        is_goal[ue.target] = 0;
-        --remaining;
-      }
-      // Continue; there might be other goals still pending.
+      // Mark goal as satisfied
+      is_goal[u] = 0;
+      --remaining;
     }
 
-    for (const auto& arc : G.neighbors(u)) {
-      EdgeIndex v = arc.to;
-      double nd = du + arc.w;
+    // Relax neighbors
+    const auto& nbrs = G.neighbors(u);
+    for (size_t i = 0; i < nbrs.size(); ++i) {
+      const EdgeIndex v = nbrs[i].to;
+      const double nd   = du + nbrs[i].w;
+
       if (nd + 1e-15 < dist[v]) {
-        dist[v] = nd; parent[v] = u;
+        dist[v]   = nd;
+        parent[v] = u;
         pq.emplace(nd, v);
       }
     }
   }
-
-  // Any remaining goals stay with default (found=false)
-  return out;
-}
 
 } // namespace ROUTING
 } // namespace FMM

@@ -279,22 +279,23 @@ void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double e
   SPDLOG_DEBUG("Update layer {} starts", level);
   TGLayer &lb = *lb_ptr;
   for (auto iter_a = la_ptr->begin(); iter_a != la_ptr->end(); ++iter_a) {
-    NodeIndex source = iter_a->c->edge->target;
+    NodeIndex source = iter_a->c->edge->index;
     // SPDLOG_TRACE("  Calculate distance from source {}", source);
     // single source upper bound routing
     std::vector<NodeIndex> targets(lb.size());
     std::transform(lb.begin(), lb.end(), targets.begin(),
                    [](TGNode &a) {
-      return a.c->edge->source;
+      return a.c->edge->index;
     });
 
-    std::unordered_map<NodeIndex, Path> paths = shortest_node_to_each_of(
+    std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
         network_,
         source,
         targets);
     for (auto& it: paths) {
         // Do stuff
         SPDLOG_TRACE("{} {}", it.first, it.second.total_cost);
+        SPDLOG_TRACE("PATH: {}", it.second.edges);
     }
 
     for (auto iter_b = lb_ptr->begin(); iter_b != lb_ptr->end(); ++iter_b) {
@@ -304,11 +305,15 @@ void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double e
       if (iter_a->c->edge->id == iter_b->c->edge->id) {
         path_distance = eu_dist;
       } else {
-        SPDLOG_TRACE("First offset {}, path dist {}, last link {}", (iter_a->c->edge->length - iter_a->c->offset), paths.at(iter_b->c->edge->source).total_cost, iter_b->c->offset);
+        SPDLOG_TRACE("First offset {}, path dist {}, last link {}", 
+          (iter_a->c->edge->length - iter_a->c->offset), 
+          paths.at(iter_b->c->edge->index).total_cost, 
+          (iter_b->c->offset - iter_b->c->edge->length)
+        );
         path_distance = (
-          (iter_a->c->edge->length -iter_a->c->offset)  // remove start of first link to offset
-          + paths.at(iter_b->c->edge->source).total_cost // path until last link
-          + (iter_b->c->offset) // add offset along last link
+          (iter_a->c->edge->length - iter_a->c->offset)  // remove start of first link to offset
+          + paths.at(iter_b->c->edge->index).total_cost // path until last link
+          + (iter_b->c->offset - iter_b->c->edge->length) // add offset along last link
         );
       }
 
@@ -345,10 +350,10 @@ C_Path STMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices) {
     const Candidate *b = opath[i + 1]->c;
     // SPDLOG_TRACE("Check a {} b {}", a->edge->id, b->edge->id);
     if (a->edge->id != b->edge->id) {
-      Path path = shortest_node_to_node(
+      Path path = shortest_edge_to_edge(
         network_,
-        a->edge->target,
-        b->edge->source);
+        a->edge->index,
+        b->edge->index);
       std::vector<EdgeIndex> segs = path.edges;
       // No transition found
       if (segs.empty() && a->edge->target != b->edge->source) {
