@@ -371,5 +371,8 @@ shortest_edge_to_edges(const FMM::NETWORK::Network& net,
     }
   }
 
+  return out;
+}
+
 } // namespace ROUTING
 } // namespace FMM
