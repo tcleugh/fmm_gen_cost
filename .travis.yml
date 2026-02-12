@@ -20,6 +20,7 @@ script:
   - sudo make install
   - fmm
   - stmatch
+  - weightmatch
   - ubodt_gen
   - cd ../example/python
   - which python

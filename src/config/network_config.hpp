@@ -23,6 +23,7 @@ namespace CONFIG {
  */
 struct NetworkConfig{
   std::string file; /**< filename */
+  std::string turn_ban_file; /**< turn ban filename */
   std::string id; /**< id field/column name */
   std::string source; /**< source field/column name */
   std::string target; /**< target field/column name */

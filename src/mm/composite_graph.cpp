@@ -179,3 +179,7 @@ std::vector<CompEdgeProperty> CompositeGraph::out_edges(NodeIndex u) const {
 bool CompositeGraph::check_dummy_node(NodeIndex u) const {
   return u>=num_vertices;
 }
+
+// NodeIndex CompositeGraph::get_external_index(NodeIndex u) const {
+//   return dg_.get_external_index(u);
+// }

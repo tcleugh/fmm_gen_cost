@@ -14,6 +14,7 @@
 #include <list>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include "core/geometry.hpp"
 
 namespace FMM {
@@ -51,8 +52,33 @@ struct Edge
   NodeIndex source; /**< source node index */
   NodeIndex target; /**< target node index */
   double length; /**< length of the edge polyline */
+  double weight; /**< weight of the edge */
   FMM::CORE::LineString geom; /**< the edge geometry */
 };
+
+/**
+ * Road turn class (used to ban specificd turns)
+ */
+struct Turn
+{
+  EdgeIndex in_edge;
+  EdgeIndex out_edge;
+};
+struct TurnHash {
+  size_t operator()(const Turn& t) const noexcept {
+    return std::hash<long long>()(((long long)t.in_edge << 32) | t.out_edge);
+  }
+};
+struct TurnEq {
+  bool operator()(const Turn& a, const Turn& b) const noexcept {
+    return a.in_edge == b.in_edge && a.out_edge == b.out_edge;
+  }
+};
+
+/**
+ * Set of Turns
+ */
+typedef std::unordered_set<Turn, TurnHash, TurnEq> TurnSet;
 
 } // NETWORK
 } // MM

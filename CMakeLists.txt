@@ -111,6 +111,7 @@ file(GLOB MMGlob src/mm/*.cpp)
 file(GLOB FMMGlob src/mm/fmm/*.cpp)
 file(GLOB STMATCHGlob src/mm/stmatch/*.cpp)
 file(GLOB h3Glob third_party/h3/lib/*.c)
+file(GLOB WEIGHTMATCHGlob src/mm/weightmatch/*.cpp)
 
 add_library(CORE OBJECT ${CoreGlob})
 add_library(ALGORITHM OBJECT ${AlgorithmGlob})
@@ -122,11 +123,13 @@ add_library(MM_OBJ OBJECT ${MMGlob})
 add_library(FMM_OBJ OBJECT ${FMMGlob})
 add_library(STMATCH_OBJ OBJECT ${STMATCHGlob})
 add_library(H3_OBJ OBJECT ${h3Glob})
+add_library(WEIGHTMATCH_OBJ OBJECT ${WEIGHTMATCHGlob})
 
 add_library(FMMLIB SHARED
   $<TARGET_OBJECTS:MM_OBJ>
   $<TARGET_OBJECTS:FMM_OBJ>
   $<TARGET_OBJECTS:STMATCH_OBJ>
+  $<TARGET_OBJECTS:WEIGHTMATCH_OBJ>
   $<TARGET_OBJECTS:CORE>
   $<TARGET_OBJECTS:CONFIG>
   $<TARGET_OBJECTS:ALGORITHM>
@@ -149,11 +152,14 @@ target_link_libraries(stmatch FMMLIB)
 add_executable(h3mm src/app/h3mm.cpp)
 target_link_libraries(h3mm FMMLIB)
 
+add_executable(weightmatch src/app/weightmatch.cpp)
+target_link_libraries(weightmatch FMMLIB)
+
 message(STATUS "Installation folder ${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS FMMLIB LIBRARY DESTINATION lib)
 
-install(TARGETS fmm ubodt_gen stmatch h3mm DESTINATION bin)
+install(TARGETS fmm ubodt_gen stmatch h3mm weightmatch DESTINATION bin)
 
 if(FMM_INSTALL_HEADER)
   message(STATUS "Install fmm headers")

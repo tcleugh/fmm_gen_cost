@@ -1,27 +1,19 @@
-/**
- * Fast map matching.
- *
- * Stmatch command line program configuration.
- *
- * @author: Can Yang
- * @version: 2020.01.31
- */
 
-#ifndef FMM_STMATCH_APP_CONFIG_HPP_
-#define FMM_STMATCH_APP_CONFIG_HPP_
+#ifndef FMM_WEIGHTMATCH_APP_CONFIG_HPP_
+#define FMM_WEIGHTMATCH_APP_CONFIG_HPP_
 
 #include "config/gps_config.hpp"
 #include "config/network_config.hpp"
 #include "config/result_config.hpp"
-#include "mm/stmatch/stmatch_algorithm.hpp"
+#include "mm/weightmatch/weightmatch_algorithm.hpp"
 
 namespace FMM {
 namespace MM{
 
 /**
- * Configuration class of stmatch command line program
+ * Configuration class of weightmatch command line program
  */
-class STMATCHAppConfig
+class WEIGHTMATCHAppConfig
 {
  public:
   /**
@@ -32,12 +24,7 @@ class STMATCHAppConfig
    * @param argv raw argument data
    *
    */
-  STMATCHAppConfig(int argc, char **argv);
-  /**
-   * Load configuration from an XML file
-   * @param file xml file name
-   */
-  void load_xml(const std::string &file);
+  WEIGHTMATCHAppConfig(int argc, char **argv);
   /**
    * Load configuration from arguments. The argument data
    * are fetched from the main function directly.
@@ -60,14 +47,14 @@ class STMATCHAppConfig
   CONFIG::NetworkConfig network_config; /**< Network data configuraiton */
   CONFIG::GPSConfig gps_config; /**< GPS data configuraiton */
   CONFIG::ResultConfig result_config; /**< Result configuraiton */
-  STMATCHConfig stmatch_config; /**< Map matching configuraiton */
+  WEIGHTMATCHConfig weightmatch_config; /**< Map matching configuraiton */
   bool use_omp = false; /**< If true, parallel map matching performed */
   bool help_specified = false; /**< Help is specified or not */
   int log_level = 2; /**< log level, 0-trace,1-debug,2-info,
                           3-warn,4-err,5-critical,6-off */
   int step = 100; /**< progress report step */
-}; // STMATCHAppConfig
+}; // WEIGHTMATCHAppConfig
 }
 }
 
-#endif //FFMM_SRC_FMM_STMATCH_STMATCH_APP_CONFIG_HPP_
+#endif //FFMM_SRC_FMM_WEIGHTMATCH_WEIGHTMATCH_APP_CONFIG_HPP_

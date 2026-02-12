@@ -168,6 +168,7 @@ class CompositeGraph {
    * a candidate point
    */
   bool check_dummy_node(NETWORK::NodeIndex u) const;
+  // NETWORK::NodeIndex get_external_index(NETWORK::NodeIndex u) const;
  private:
   const NETWORK::NetworkGraph &g_;
   const DummyGraph &dg_;
