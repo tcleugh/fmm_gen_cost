@@ -27,14 +27,16 @@ bool Network::candidate_compare(const Candidate &a, const Candidate &b) {
   }
 }
 
-Network::Network(const std::string &filename,
-                 const std::string &turn_ban_file,
-                 const std::string &id_name,
-                 const std::string &source_name,
-                 const std::string &target_name,
-                 const std::string &weight_name) {
+Network::Network(
+  const std::string &filename,
+  const std::string &turn_ban_file,
+  const std::string &id_name,
+  const std::string &source_name,
+  const std::string &target_name,
+  const std::string &weight_name
+) {
   if (FMM::UTIL::check_file_extension(filename, "shp")) {
-    read_ogr_file(filename,id_name,source_name,target_name,weight_name);
+    read_ogr_file(filename, id_name, source_name, target_name, weight_name);
   } else {
     std::string message = (boost::format("Network file not supported %1%") % filename).str();
     SPDLOG_CRITICAL(message);
@@ -43,8 +45,13 @@ Network::Network(const std::string &filename,
   read_turn_ban_file(turn_ban_file);
 };
 
-void Network::add_edge(EdgeID edge_id, NodeID source, NodeID target, double weight,
-                       const FMM::CORE::LineString &geom){
+void Network::add_edge(
+  EdgeID edge_id, 
+  NodeID source, 
+  NodeID target, 
+  double weight, 
+  const FMM::CORE::LineString &geom
+){
   NodeIndex s_idx, t_idx;
   if (node_map.find(source) == node_map.end()) {
     s_idx = node_id_vec.size();
@@ -64,15 +71,17 @@ void Network::add_edge(EdgeID edge_id, NodeID source, NodeID target, double weig
     t_idx = node_map[target];
   }
   EdgeIndex index = edges.size();
-  edges.push_back({index, edge_id, s_idx, t_idx, geom.get_length() * weight, geom});
+  edges.push_back({index, edge_id, s_idx, t_idx, geom.get_length(), weight, geom});
   edge_map.insert({edge_id, index});
 };
 
-void Network::read_ogr_file(const std::string &filename,
-                            const std::string &id_name,
-                            const std::string &source_name,
-                            const std::string &target_name,
-                            const std::string &weight_name) {
+void Network::read_ogr_file(
+  const std::string &filename,
+  const std::string &id_name,
+  const std::string &source_name,
+  const std::string &target_name,
+  const std::string &weight_name
+) {
   SPDLOG_INFO("Read network from file {}", filename);
   OGRRegisterAll();
   GDALDataset *poDS = (GDALDataset *) GDALOpenEx(
@@ -93,7 +102,13 @@ void Network::read_ogr_file(const std::string &filename,
   int id_idx = ogrFDefn->GetFieldIndex(id_name.c_str());
   int source_idx = ogrFDefn->GetFieldIndex(source_name.c_str());
   int target_idx = ogrFDefn->GetFieldIndex(target_name.c_str());
-  int weight_idx = ogrFDefn->GetFieldIndex(weight_name.c_str());
+  int weight_idx;
+  if (weight_name == "NO_WEIGHT") {
+    weight_idx = ogrFDefn->GetFieldIndex(weight_name.c_str());
+  } else {
+    weight_idx = 99999;
+  }
+  
   if (source_idx < 0 || target_idx < 0 || id_idx < 0 || weight_idx < 0) {
     std::string error_message = fmt::format(
       "Field not found: {} index {}, {} index {}, {} index {}, {} index {}",
@@ -134,7 +149,12 @@ void Network::read_ogr_file(const std::string &filename,
     EdgeID id = ogrFeature->GetFieldAsInteger64(id_idx);
     NodeID source = ogrFeature->GetFieldAsInteger64(source_idx);
     NodeID target = ogrFeature->GetFieldAsInteger64(target_idx);
-    double weight = ogrFeature->GetFieldAsDouble(weight_idx);
+    double weight;
+    if (weight_name == "NO_WEIGHT") {
+      weight = ogrFeature->GetFieldAsDouble(weight_idx);
+    } else {
+      weight = 1.0;
+    }
     OGRGeometry *rawgeometry = ogrFeature->GetGeometryRef();
     LineString geom;
     if (rawgeometry->getGeometryType() == wkbLineString) {
@@ -166,7 +186,7 @@ void Network::read_ogr_file(const std::string &filename,
     } else {
       t_idx = node_map[target];
     }
-    edges.push_back({index, id, s_idx, t_idx, geom.get_length() * weight, geom});
+    edges.push_back({index, id, s_idx, t_idx, geom.get_length(), weight, geom});
     edge_map.insert({id, index});
     ++index;
     OGRFeature::DestroyFeature(ogrFeature);
@@ -181,41 +201,43 @@ void Network::read_ogr_file(const std::string &filename,
 }    // Network constructor
 
 void Network::read_turn_ban_file(const std::string &filename) {
-  SPDLOG_INFO("Read turn bans from file {}", filename);
+  if (filename != "NO_TURN_BANS") {
+    SPDLOG_INFO("Read turn bans from file {}", filename);
 
-  std::string intermediate;
-  EdgeID in_edge_id = -1;
-  EdgeID out_edge_id = -1;
-  std::string line;
-  char delim = ',';
+    std::string intermediate;
+    EdgeID in_edge_id = -1;
+    EdgeID out_edge_id = -1;
+    std::string line;
+    char delim = ',';
 
-  std::fstream fs(filename);
+    std::fstream fs(filename);
 
-  // skip header line
-  if (fs.peek() != EOF) {
-   std::getline(fs, line);
-  }
-
-  // load turn bans line by line
-  while (fs.peek() != EOF) {
+    // skip header line
+    if (fs.peek() != EOF) {
     std::getline(fs, line);
-    std::stringstream ss(line);
-
-    int index = 0;
-    while (std::getline(ss, intermediate, delim)) {
-      if (index == 0) {
-        in_edge_id = std::stoi(intermediate);
-      }
-      if (index == 1) {
-        out_edge_id = std::stoi(intermediate);
-      }
-      ++index;
     }
-    SPDLOG_TRACE("Loading turn ban from inEdge {} to outEdge {}",
-              in_edge_id, out_edge_id);
-    turn_bans.insert({get_edge_index(in_edge_id), get_edge_index(out_edge_id)});
-  };
-  SPDLOG_INFO("Read turn bans done");
+
+    // load turn bans line by line
+    while (fs.peek() != EOF) {
+      std::getline(fs, line);
+      std::stringstream ss(line);
+
+      int index = 0;
+      while (std::getline(ss, intermediate, delim)) {
+        if (index == 0) {
+          in_edge_id = std::stoi(intermediate);
+        }
+        if (index == 1) {
+          out_edge_id = std::stoi(intermediate);
+        }
+        ++index;
+      }
+      SPDLOG_TRACE("Loading turn ban from inEdge {} to outEdge {}",
+                in_edge_id, out_edge_id);
+      turn_bans.insert({get_edge_index(in_edge_id), get_edge_index(out_edge_id)});
+    };
+    SPDLOG_INFO("Read turn bans done");
+  }
 }
 
 int Network::get_node_count() const {
@@ -276,13 +298,19 @@ void Network::build_rtree_index() {
   SPDLOG_DEBUG("Create boost rtree done");
 }
 
-Traj_Candidates Network::search_tr_cs_knn(Trajectory &trajectory, std::size_t k,
-                                          double radius) const {
+Traj_Candidates Network::search_tr_cs_knn(
+  Trajectory &trajectory, 
+  std::size_t k,
+  double radius
+) const {
   return search_tr_cs_knn(trajectory.geom, k, radius);
 }
 
-Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
-                                          double radius) const {
+Traj_Candidates Network::search_tr_cs_knn(
+  const LineString &geom, 
+  std::size_t k,
+  double radius
+) const {
   int NumberPoints = geom.get_num_points();
   Traj_Candidates tr_cs(NumberPoints);
   unsigned int current_candidate_index = num_vertices;
@@ -311,10 +339,8 @@ Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
                                     &dist, &offset, &closest_x, &closest_y);
       if (dist <= radius) {
         // index, offset, dist, edge, pseudo id, point
-        double edge_weight = (edge->length / edge->geom.get_length());
-        // SPDLOG_TRACE("Edge weight {}", edge_weight);
         Candidate c = {0,
-                       offset * edge_weight, // apply edge weights to offsets
+                       offset,
                        dist,
                        edge,
                        Point(closest_x, closest_y)};
@@ -340,7 +366,6 @@ Traj_Candidates Network::search_tr_cs_knn(const LineString &geom, std::size_t k,
       tr_cs[i][m].index = current_candidate_index + m;
     }
     current_candidate_index += tr_cs[i].size();
-    // SPDLOG_TRACE("current_candidate_index {}",current_candidate_index);
   }
   return tr_cs;
 }
@@ -350,8 +375,9 @@ const LineString &Network::get_edge_geom(EdgeID edge_id) const {
 }
 
 LineString Network::complete_path_to_geometry(
-  const LineString &traj, const C_Path &complete_path) const {
-  // if (complete_path->empty()) return nullptr;
+  const LineString &traj, 
+  const C_Path &complete_path
+) const {
   LineString line;
   if (complete_path.empty()) return line;
   int Npts = traj.get_num_points();
@@ -403,7 +429,6 @@ const Point &Network::get_vertex_point(NodeIndex u) const {
 LineString Network::route2geometry(const std::vector<EdgeID> &path) const {
   LineString line;
   if (path.empty()) return line;
-  // if (complete_path->empty()) return nullptr;
   int NCsegs = path.size();
   for (int i = 0; i < NCsegs; ++i) {
     EdgeIndex e = get_edge_index(path[i]);
@@ -414,14 +439,12 @@ LineString Network::route2geometry(const std::vector<EdgeID> &path) const {
       append_segs_to_line(&line, seg, 1);
     }
   }
-  //SPDLOG_DEBUG("Path geometry is {}",line.exportToWkt());
   return line;
 }
 
 LineString Network::route2geometry(const std::vector<EdgeIndex> &path) const {
   LineString line;
   if (path.empty()) return line;
-  // if (complete_path->empty()) return nullptr;
   int NCsegs = path.size();
   for (int i = 0; i < NCsegs; ++i) {
     const LineString &seg = edges[path[i]].geom;
@@ -431,12 +454,14 @@ LineString Network::route2geometry(const std::vector<EdgeIndex> &path) const {
       append_segs_to_line(&line, seg, 1);
     }
   }
-  //SPDLOG_DEBUG("Path geometry is {}",line.exportToWkt());
   return line;
 }
 
-void Network::append_segs_to_line(LineString *line,
-                                  const LineString &segs, int offset) {
+void Network::append_segs_to_line(
+  LineString *line,
+  const LineString &segs, 
+  int offset
+) {
   int Npoints = segs.get_num_points();
   for (int i = 0; i < Npoints; ++i) {
     if (i >= offset) {

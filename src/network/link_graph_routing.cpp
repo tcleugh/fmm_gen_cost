@@ -9,8 +9,9 @@
 #include <cstdint>
 #include <unordered_map>
 
-#include "network/type.hpp"   // for Edge, EdgeIndex, NodeIndex, etc.
-#include "network/network.hpp" // your Network class header (path as per your tree)
+#include "network/type.hpp"
+#include "network/network.hpp"
+#include "util/debug.hpp"
 
 namespace FMM {
 namespace ROUTING {
@@ -28,10 +29,15 @@ struct LengthCost {
   double operator()(const Edge& e) const noexcept { return e.length; }
 };
 
+struct WeightedCost {
+  double operator()(const Edge& e) const noexcept { return e.length * e.weight; }
+};
+
+
 // ------------------------------------
 // LinkGraph: vertices are EdgeIndex-es
 // ------------------------------------
-template<class CostFn = LengthCost>
+template<class CostFn = WeightedCost>
 class LinkGraph {
 public:
   struct Arc { EdgeIndex to; double w; };
@@ -122,7 +128,7 @@ struct DijResult {
   std::vector<EdgeIndex> parent;   // predecessor edge (UINT_MAX sentinel)
 };
 
-template<class CostFn = LengthCost>
+template<class CostFn = WeightedCost>
 DijResult dijkstra(LinkGraph<CostFn>& G,
                    const std::vector<std::pair<EdgeIndex, double>>& sources, // (edge, initCost)
                    const std::function<bool(EdgeIndex)>& isTarget = nullptr,
@@ -234,7 +240,7 @@ inline Path reconstruct_path(const FMM::NETWORK::Network& net,
 // Convenience wrappers for common tasks
 // ---------------------------------------
 
-template<class CostFn = LengthCost>
+template<class CostFn = WeightedCost>
 Path shortest_edge_to_edge(const FMM::NETWORK::Network& net,
                            EdgeIndex start_e,
                            EdgeIndex goal_e,
@@ -257,7 +263,7 @@ Path shortest_edge_to_edge(const FMM::NETWORK::Network& net,
   return P;
 }
 
-template<class CostFn = LengthCost>
+template<class CostFn = WeightedCost>
 std::unordered_map<EdgeIndex, Path>
 shortest_edge_to_edges(const FMM::NETWORK::Network& net,
                        EdgeIndex start_e,

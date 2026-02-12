@@ -1,4 +1,4 @@
-#include "mm/stmatch/stmatch_algorithm.hpp"
+#include "mm/weightmatch/weightmatch_algorithm.hpp"
 #include "algorithm/geom_algorithm.hpp"
 #include "util/debug.hpp"
 #include "util/util.hpp"
@@ -15,86 +15,51 @@ using namespace FMM::ROUTING;
 using namespace FMM::MM;
 using namespace FMM::PYTHON;
 
-STMATCHConfig::STMATCHConfig(
-  int k_arg, double r_arg, double gps_error_arg,
-  double vmax_arg, double factor_arg, double reverse_tolerance_arg):
-  k(k_arg), radius(r_arg), gps_error(gps_error_arg),
-  vmax(vmax_arg), factor(factor_arg),
-  reverse_tolerance(reverse_tolerance_arg) {
+WEIGHTMATCHConfig::WEIGHTMATCHConfig(int k_arg, double r_arg, double gps_error_arg):
+  k(k_arg), radius(r_arg), gps_error(gps_error_arg) {
 };
 
-void STMATCHConfig::print() const {
-  SPDLOG_INFO("STMATCHAlgorithmConfig");
-  SPDLOG_INFO("k {} radius {} gps_error {} vmax {} factor {}",
-              k, radius, gps_error, vmax, factor);
-  SPDLOG_INFO("reverse_tolerance {}",reverse_tolerance);
+void WEIGHTMATCHConfig::print() const {
+  SPDLOG_INFO("WEIGHTMATCHAlgorithmConfig");
+  SPDLOG_INFO("k {} radius {} gps_error {}", k, radius, gps_error);
 };
 
-STMATCHConfig STMATCHConfig::load_from_xml(
-  const boost::property_tree::ptree &xml_data) {
-  int k = xml_data.get("config.parameters.k", 8);
-  double radius = xml_data.get("config.parameters.r", 300.0);
-  double gps_error = xml_data.get("config.parameters.gps_error", 50.0);
-  double vmax = xml_data.get("config.parameters.vmax", 80.0);
-  double factor = xml_data.get("config.parameters.factor", 1.5);
-  double reverse_tolerance =
-    xml_data.get("config.parameters.reverse_tolerance", 0.0);
-  return STMATCHConfig{k, radius, gps_error, vmax, factor,reverse_tolerance};
-};
-
-STMATCHConfig STMATCHConfig::load_from_arg(
+WEIGHTMATCHConfig WEIGHTMATCHConfig::load_from_arg(
   const cxxopts::ParseResult &arg_data) {
   int k = arg_data["candidates"].as<int>();
   double radius = arg_data["radius"].as<double>();
   double gps_error = arg_data["error"].as<double>();
-  double vmax = arg_data["vmax"].as<double>();
-  double factor = arg_data["factor"].as<double>();
-  double reverse_tolerance = arg_data["reverse_tolerance"].as<double>();
-  return STMATCHConfig{k, radius, gps_error, vmax, factor, reverse_tolerance};
+  return WEIGHTMATCHConfig{k, radius, gps_error};
 };
 
-void STMATCHConfig::register_arg(cxxopts::Options &options){
+void WEIGHTMATCHConfig::register_arg(cxxopts::Options &options){
   options.add_options()
     ("k,candidates","Number of candidates",
     cxxopts::value<int>()->default_value("8"))
     ("r,radius","Search radius",
     cxxopts::value<double>()->default_value("300.0"))
     ("e,error","GPS error",
-    cxxopts::value<double>()->default_value("50.0"))
-    ("vmax","Maximum speed",
-    cxxopts::value<double>()->default_value("30.0"))
-    ("factor","Scale factor",
-    cxxopts::value<double>()->default_value("1.5"))
-    ("reverse_tolerance","Ratio of reverse movement allowed",
-      cxxopts::value<double>()->default_value("0.0"));
+    cxxopts::value<double>()->default_value("50.0"));
 }
 
-void STMATCHConfig::register_help(std::ostringstream &oss){
+void WEIGHTMATCHConfig::register_help(std::ostringstream &oss){
   oss<<"-k/--candidates (optional) <int>: number of candidates (8)\n";
   oss<<"-r/--radius (optional) <double>: search "
     "radius (network data unit) (300)\n";
   oss<<"-e/--error (optional) <double>: GPS error "
     "(network data unit) (50)\n";
-  oss<<"-f/--factor (optional) <double>: scale factor (1.5)\n";
-  oss<<"-v/--vmax (optional) <double>: "
-    " Maximum speed (unit: network_data_unit/s) (30)\n";
-  oss<<"--reverse_tolerance (optional) <double>: proportion "
-      "of reverse movement allowed on an edge\n";
 };
 
-bool STMATCHConfig::validate() const {
-  if (gps_error <= 0 || radius <= 0 || k <= 0 || vmax <= 0 || factor <= 0
-      || reverse_tolerance<0) {
-    SPDLOG_CRITICAL("Invalid mm parameter k {} r {} gps error {} "
-        "vmax {} f {} reverse_tolerance {}",
-                    k, radius, gps_error, vmax, factor, reverse_tolerance);
+bool WEIGHTMATCHConfig::validate() const {
+  if (gps_error <= 0 || radius <= 0 || k <= 0) {
+    SPDLOG_CRITICAL("Invalid mm parameter k {} r {} gps error {} ", k, radius, gps_error);
     return false;
   }
   return true;
 }
 
-PyMatchResult STMATCH::match_wkt(
-  const std::string &wkt, const STMATCHConfig &config) {
+PyMatchResult WEIGHTMATCH::match_wkt(
+  const std::string &wkt, const WEIGHTMATCHConfig &config) {
   LineString line = wkt2linestring(wkt);
   std::vector<double> timestamps;
   Trajectory traj{0, line, timestamps};
@@ -125,28 +90,26 @@ PyMatchResult STMATCH::match_wkt(
 };
 
 // Procedure of HMM based map matching algorithm.
-MatchResult STMATCH::match_traj(const Trajectory &traj,
-                                const STMATCHConfig &config) {
+MatchResult WEIGHTMATCH::match_traj(const Trajectory &traj, const WEIGHTMATCHConfig &config) {
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
-  Traj_Candidates tc = network_.search_tr_cs_knn(
-    traj.geom, config.k, config.radius);
+  Traj_Candidates tc = network_.search_tr_cs_knn(traj.geom, config.k, config.radius);
+
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
-  // SPDLOG_DEBUG("Generate dummy graph");
-  // DummyGraph dg(tc, config.reverse_tolerance);
-  // dg.print_node_index_map();
-  // SPDLOG_DEBUG("Generate composite_graph");
-  // CompositeGraph cg(graph_, dg);
+
   SPDLOG_DEBUG("Generate transition graph");
   TransitionGraph tg(tc, config.gps_error);
+
   SPDLOG_DEBUG("Update cost in transition graph");
-  // The network will be used internally to update transition graph
   update_tg(&tg, traj, config);
+
   SPDLOG_DEBUG("Optimal path inference");
   TGOpath tg_opath = tg.backtrack();
+
   SPDLOG_DEBUG("Optimal path size {}", tg_opath.size());
   MatchedCandidatePath matched_candidate_path(tg_opath.size());
+
   std::transform(
     tg_opath.begin(), 
     tg_opath.end(),
@@ -166,21 +129,22 @@ MatchResult STMATCH::match_traj(const Trajectory &traj,
       return a->c->edge->id;
     }
   );
+
   std::vector<int> indices;
   C_Path cpath = build_cpath(tg_opath, &indices);
   SPDLOG_DEBUG("Opath is {}", opath);
   SPDLOG_DEBUG("Indices is {}", indices);
   SPDLOG_DEBUG("Complete path is {}", cpath);
-  LineString mgeom = network_.complete_path_to_geometry(
-    traj.geom, cpath);
-  return MatchResult{
-    traj.id, matched_candidate_path, opath, cpath, indices, mgeom};
+
+  LineString mgeom = network_.complete_path_to_geometry(traj.geom, cpath);
+
+  return MatchResult{traj.id, matched_candidate_path, opath, cpath, indices, mgeom};
 }
 
-std::string STMATCH::match_gps_file(
+std::string WEIGHTMATCH::match_gps_file(
   const FMM::CONFIG::GPSConfig &gps_config,
   const FMM::CONFIG::ResultConfig &result_config,
-  const STMATCHConfig &stmatch_config,
+  const WEIGHTMATCHConfig &weightmatch_config,
   bool use_omp
   ){
   std::ostringstream oss;
@@ -194,8 +158,8 @@ std::string STMATCH::match_gps_file(
     oss<<"result_config invalid\n";
     validate = false;
   }
-  if (!stmatch_config.validate()) {
-    oss<<"stmatch_config invalid\n";
+  if (!weightmatch_config.validate()) {
+    oss<<"WEIGHTMATCH_config invalid\n";
     validate = false;
   }
   if (!validate) {
@@ -209,8 +173,7 @@ std::string STMATCH::match_gps_file(
   int step_size = 1000;
   auto begin_time = UTIL::get_current_time();
   FMM::IO::GPSReader reader(gps_config);
-  FMM::IO::CSVMatchResultWriter writer(result_config.file,
-                                       result_config.output_config);
+  FMM::IO::CSVMatchResultWriter writer(result_config.file, result_config.output_config);
   if (use_omp) {
     int buffer_trajectories_size = 100000;
     while (reader.has_next_trajectory()) {
@@ -221,8 +184,7 @@ std::string STMATCH::match_gps_file(
       for (int i = 0; i < trajectories_fetched; ++i) {
         Trajectory &trajectory = trajectories[i];
         int points_in_tr = trajectory.geom.get_num_points();
-        MM::MatchResult result = match_traj(
-          trajectory, stmatch_config);
+        MM::MatchResult result = match_traj(trajectory, weightmatch_config);
         writer.write_result(trajectory,result);
         #pragma omp critical
         if (!result.cpath.empty()) {
@@ -244,8 +206,7 @@ std::string STMATCH::match_gps_file(
       }
       Trajectory trajectory = reader.read_next_trajectory();
       int points_in_tr = trajectory.geom.get_num_points();
-      MM::MatchResult result = match_traj(
-        trajectory, stmatch_config);
+      MM::MatchResult result = match_traj(trajectory, weightmatch_config);
       writer.write_result(trajectory,result);
       if (!result.cpath.empty()) {
         points_matched += points_in_tr;
@@ -263,7 +224,7 @@ std::string STMATCH::match_gps_file(
   return oss.str();
 };
 
-void STMATCH::update_tg(TransitionGraph *tg, const Trajectory &traj, const STMATCHConfig &config) {
+void WEIGHTMATCH::update_tg(TransitionGraph *tg, const Trajectory &traj, const WEIGHTMATCHConfig &config) {
   SPDLOG_DEBUG("Update transition graph");
   std::vector<TGLayer> &layers = tg->get_layers();
   std::vector<double> eu_dists = ALGORITHM::cal_eu_dist(traj.geom);
@@ -275,7 +236,7 @@ void STMATCH::update_tg(TransitionGraph *tg, const Trajectory &traj, const STMAT
   SPDLOG_DEBUG("Update transition graph done");
 }
 
-void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double eu_dist) {
+void WEIGHTMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double eu_dist) {
   SPDLOG_DEBUG("Update layer {} starts", level);
   TGLayer &lb = *lb_ptr;
   for (auto iter_a = la_ptr->begin(); iter_a != la_ptr->end(); ++iter_a) {
@@ -327,7 +288,7 @@ void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double e
   SPDLOG_DEBUG("Update layer done");
 }
 
-C_Path STMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices) {
+C_Path WEIGHTMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices) {
   SPDLOG_DEBUG("Build cpath from optimal candidate path");
   C_Path cpath;
   if (!indices->empty()) indices->clear();
