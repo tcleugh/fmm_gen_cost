@@ -124,18 +124,45 @@ protected:
   /**
    * Update probabilities in a transition graph
    * @param tg transition graph
+   * @param cg composition graph
    * @param traj raw trajectory
    * @param config map match configuration
    */
-  void update_tg(TransitionGraph *tg, const CORE::Trajectory &traj, const STMATCHConfig &config);
+  void update_tg(TransitionGraph *tg,
+                 const CompositeGraph &cg,
+                 const CORE::Trajectory &traj,
+                 const STMATCHConfig &config);
   /**
    * Update probabilities between two layers a and b in the transition graph
    * @param level   the index of layer a
    * @param la_ptr  layer a
    * @param lb_ptr  layer b next to a
+   * @param cg      Composition graph
    * @param eu_dist Euclidean distance between two observed point
+   * @param delta   An upper bound to limit the search
    */
-  void update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double eu_dist);
+  void update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr,
+                    const CompositeGraph &cg,
+                    double eu_dist,
+                    double delta);
+
+  /**
+   * Return distances from source to all targets and with an upper bound of
+   * delta to stop the search
+   * @param  level   The source node's level in transiton graph, used for
+   * logging.
+   * @param  cg      Composition graph
+   * @param  source  Source node
+   * @param  targets A vector of target nodes
+   * @param  delta   An upper bound value to constrain the search
+   * @return A vector of distances to the target nodes, if any target node
+   * is not reached, infinity distance will be returned for that node.
+   */
+  std::vector<double> shortest_path_upperbound(
+    int level,
+    const CompositeGraph &cg, NETWORK::NodeIndex source,
+    const std::vector<NETWORK::NodeIndex> &targets, double delta);
+
   /**
    * Create a topologically connected path according to each matched
    * candidate
@@ -144,7 +171,8 @@ protected:
    * edge or candidate in the returned path.
    * @return A vector of edge id representing the traversed path
    */
-  C_Path build_cpath(const TGOpath &tg_opath, std::vector<int> *indices);
+  C_Path build_cpath(const TGOpath &tg_opath, std::vector<int> *indices,
+                     double reverse_tolerance=0);
 private:
   const NETWORK::Network &network_;
   const NETWORK::NetworkGraph &graph_;

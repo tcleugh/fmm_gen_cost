@@ -4,14 +4,12 @@
 #include "util/util.hpp"
 #include "io/gps_reader.hpp"
 #include "io/mm_writer.hpp"
-#include "network/link_graph_routing.cpp"
 
 #include <limits>
 
 using namespace FMM;
 using namespace FMM::CORE;
 using namespace FMM::NETWORK;
-using namespace FMM::ROUTING;
 using namespace FMM::MM;
 using namespace FMM::PYTHON;
 
@@ -133,41 +131,34 @@ MatchResult STMATCH::match_traj(const Trajectory &traj,
     traj.geom, config.k, config.radius);
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
-  // SPDLOG_DEBUG("Generate dummy graph");
-  // DummyGraph dg(tc, config.reverse_tolerance);
-  // dg.print_node_index_map();
-  // SPDLOG_DEBUG("Generate composite_graph");
-  // CompositeGraph cg(graph_, dg);
-  SPDLOG_DEBUG("Generate transition graph");
+  SPDLOG_DEBUG("Generate dummy graph");
+  DummyGraph dg(tc, config.reverse_tolerance);
+  SPDLOG_DEBUG("Generate composite_graph");
+  CompositeGraph cg(graph_, dg);
+  SPDLOG_DEBUG("Generate composite_graph");
   TransitionGraph tg(tc, config.gps_error);
   SPDLOG_DEBUG("Update cost in transition graph");
   // The network will be used internally to update transition graph
-  update_tg(&tg, traj, config);
+  update_tg(&tg, cg, traj, config);
   SPDLOG_DEBUG("Optimal path inference");
   TGOpath tg_opath = tg.backtrack();
   SPDLOG_DEBUG("Optimal path size {}", tg_opath.size());
   MatchedCandidatePath matched_candidate_path(tg_opath.size());
-  std::transform(
-    tg_opath.begin(), 
-    tg_opath.end(),
-    matched_candidate_path.begin(),
-    [](const TGNode *a) {
-      return MatchedCandidate{
-        *(a->c), a->ep, a->tp, a->sp_dist
-      };
-    }
-  );
+  std::transform(tg_opath.begin(), tg_opath.end(),
+                 matched_candidate_path.begin(),
+                 [](const TGNode *a) {
+    return MatchedCandidate{
+      *(a->c), a->ep, a->tp, a->sp_dist
+    };
+  });
   O_Path opath(tg_opath.size());
-  std::transform(
-    tg_opath.begin(), 
-    tg_opath.end(),
-    opath.begin(),
-    [](const TGNode *a) {
-      return a->c->edge->id;
-    }
-  );
+  std::transform(tg_opath.begin(), tg_opath.end(),
+                 opath.begin(),
+                 [](const TGNode *a) {
+    return a->c->edge->id;
+  });
   std::vector<int> indices;
-  C_Path cpath = build_cpath(tg_opath, &indices);
+  C_Path cpath = build_cpath(tg_opath, &indices, config.reverse_tolerance);
   SPDLOG_DEBUG("Opath is {}", opath);
   SPDLOG_DEBUG("Indices is {}", indices);
   SPDLOG_DEBUG("Complete path is {}", cpath);
@@ -263,63 +254,58 @@ std::string STMATCH::match_gps_file(
   return oss.str();
 };
 
-void STMATCH::update_tg(TransitionGraph *tg, const Trajectory &traj, const STMATCHConfig &config) {
+void STMATCH::update_tg(TransitionGraph *tg,
+                        const CompositeGraph &cg,
+                        const Trajectory &traj,
+                        const STMATCHConfig &config) {
   SPDLOG_DEBUG("Update transition graph");
   std::vector<TGLayer> &layers = tg->get_layers();
   std::vector<double> eu_dists = ALGORITHM::cal_eu_dist(traj.geom);
   int N = layers.size();
   for (int i = 0; i < N - 1; ++i) {
     // Routing from current_layer to next_layer
-    update_layer(i, &(layers[i]), &(layers[i + 1]), eu_dists[i]);
+    double delta = 0;
+    if (traj.timestamps.size() != N) {
+      delta = eu_dists[i] * config.factor * 4;
+    } else {
+      double duration = traj.timestamps[i + 1] - traj.timestamps[i];
+      delta = config.factor * config.vmax * duration;
+    }
+    update_layer(i, &(layers[i]), &(layers[i + 1]),
+                 cg, eu_dists[i], delta);
   }
   SPDLOG_DEBUG("Update transition graph done");
 }
 
-void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double eu_dist) {
+void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr,
+                           const CompositeGraph &cg,
+                           double eu_dist,
+                           double delta) {
   SPDLOG_DEBUG("Update layer {} starts", level);
   TGLayer &lb = *lb_ptr;
   for (auto iter_a = la_ptr->begin(); iter_a != la_ptr->end(); ++iter_a) {
-    NodeIndex source = iter_a->c->edge->index;
+    NodeIndex source = iter_a->c->index;
     // SPDLOG_TRACE("  Calculate distance from source {}", source);
     // single source upper bound routing
     std::vector<NodeIndex> targets(lb.size());
     std::transform(lb.begin(), lb.end(), targets.begin(),
                    [](TGNode &a) {
-      return a.c->edge->index;
+      return a.c->index;
     });
-
-    std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
-        network_,
-        source,
-        targets);
-    for (auto& it: paths) {
-        // Do stuff
-        SPDLOG_TRACE("{} {}", it.first, it.second.total_cost);
-        SPDLOG_TRACE("PATH: {}", it.second.edges);
-    }
-
+    std::vector<double> distances = shortest_path_upperbound(
+      level, cg, source, targets, delta);
     for (auto iter_b = lb_ptr->begin(); iter_b != lb_ptr->end(); ++iter_b) {
-      int i = std::distance(lb_ptr->begin(), iter_b);
-      
-      double path_distance;
-      if (iter_a->c->edge->id == iter_b->c->edge->id) {
-        path_distance = eu_dist;
-      } else {
-        double first_link_adjustment = iter_a->c->edge->weight * (iter_a->c->edge->length - iter_a->c->offset);
-        double last_link_adjustment = iter_b->c->edge->weight * (iter_b->c->offset - iter_b->c->edge->length);
-        path_distance = first_link_adjustment + paths.at(iter_b->c->edge->index).total_cost + last_link_adjustment;
-      }
-
-      double tp = TransitionGraph::calc_tp(path_distance, eu_dist);
+      int i = std::distance(lb_ptr->begin(),iter_b);
+      double tp = TransitionGraph::calc_tp(distances[i], eu_dist);
       double temp = iter_a->cumu_prob + log(tp) + log(iter_b->ep);
       SPDLOG_TRACE("L {} f {} t {} sp {} dist {} tp {} ep {} fcp {} tcp {}",
         level, iter_a->c->edge->id,iter_b->c->edge->id,
-        path_distance, eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
+        distances[i], eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
         temp);
       if (temp >= iter_b->cumu_prob) {
         iter_b->cumu_prob = temp;
         iter_b->prev = &(*iter_a);
-        iter_b->sp_dist = path_distance;
+        iter_b->sp_dist = distances[i];
         iter_b->tp = tp;
       }
     }
@@ -327,7 +313,80 @@ void STMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double e
   SPDLOG_DEBUG("Update layer done");
 }
 
-C_Path STMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices) {
+std::vector<double> STMATCH::shortest_path_upperbound(
+  int level, const CompositeGraph &cg, NodeIndex source,
+  const std::vector<NodeIndex> &targets, double delta) {
+  // SPDLOG_TRACE("Upperbound shortest path source {}", source);
+  // SPDLOG_TRACE("Upperbound shortest path targets {}", targets);
+  std::unordered_set<NodeIndex> unreached_targets;
+  for (auto &node:targets) {
+    unreached_targets.insert(node);
+  }
+  DistanceMap dmap;
+  PredecessorMap pmap;
+  Heap Q;
+  Q.push(source, 0);
+  pmap.insert({source, source});
+  dmap.insert({source, 0});
+  double temp_dist = 0;
+  // Dijkstra search
+  while (!Q.empty() && !unreached_targets.empty()) {
+    HeapNode node = Q.top();
+    Q.pop();
+    // SPDLOG_TRACE("  Node u {} dist {}", node.index, node.value);
+    NodeIndex u = node.index;
+    auto iter = unreached_targets.find(u);
+    if (iter != unreached_targets.end()) {
+      // Remove u
+      // SPDLOG_TRACE("  Remove target {}", u);
+      unreached_targets.erase(iter);
+    }
+    if (node.value > delta) break;
+    std::vector<CompEdgeProperty> out_edges = cg.out_edges(u);
+    for (auto node_iter = out_edges.begin(); node_iter != out_edges.end();
+         ++node_iter) {
+      NodeIndex v = node_iter->v;
+      temp_dist = node.value + node_iter->cost;
+      // SPDLOG_TRACE("  Examine node v {} temp dist {}", v, temp_dist);
+      auto v_iter = dmap.find(v);
+      if (v_iter != dmap.end()) {
+        // dmap contains node v
+        if (v_iter->second - temp_dist > 1e-6) {
+          // a smaller distance is found for v
+          // SPDLOG_TRACE("    Update key {} {} in pdmap prev dist {}",
+          //              v, temp_dist, v_iter->second);
+          pmap[v] = u;
+          dmap[v] = temp_dist;
+          Q.decrease_key(v, temp_dist);
+        }
+      } else {
+        // dmap does not contain v
+        if (temp_dist <= delta) {
+          // SPDLOG_TRACE("    Insert key {} {} into pmap and dmap",
+          //              v, temp_dist);
+          Q.push(v, temp_dist);
+          pmap.insert({v, u});
+          dmap.insert({v, temp_dist});
+        }
+      }
+    }
+  }
+  // Update distances
+  // SPDLOG_TRACE("  Update distances");
+  std::vector<double> distances;
+  for (int i = 0; i < targets.size(); ++i) {
+    if (dmap.find(targets[i]) != dmap.end()) {
+      distances.push_back(dmap[targets[i]]);
+    } else {
+      distances.push_back(std::numeric_limits<double>::max());
+    }
+  }
+  // SPDLOG_TRACE("  Distance value {}", distances);
+  return distances;
+}
+
+C_Path STMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices,
+  double reverse_tolerance) {
   SPDLOG_DEBUG("Build cpath from optimal candidate path");
   C_Path cpath;
   if (!indices->empty()) indices->clear();
@@ -342,12 +401,10 @@ C_Path STMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices) {
     const Candidate *a = opath[i]->c;
     const Candidate *b = opath[i + 1]->c;
     // SPDLOG_TRACE("Check a {} b {}", a->edge->id, b->edge->id);
-    if (a->edge->id != b->edge->id) {
-      Path path = shortest_edge_to_edge(
-        network_,
-        a->edge->index,
-        b->edge->index);
-      std::vector<EdgeIndex> segs = path.edges;
+    if ((a->edge->id != b->edge->id) ||
+        (a->offset-b->offset>a->edge->length * reverse_tolerance)) {
+      auto segs = graph_.shortest_path_dijkstra(a->edge->target,
+                                                b->edge->source);
       // No transition found
       if (segs.empty() && a->edge->target != b->edge->source) {
         SPDLOG_TRACE("Candidate {} has disconnected edge {} to {}",
