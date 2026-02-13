@@ -4,7 +4,7 @@
 #include "util/util.hpp"
 #include "io/gps_reader.hpp"
 #include "io/mm_writer.hpp"
-#include "network/link_graph_routing.cpp"
+#include "network/link_graph_routing.hpp"
 
 #include <limits>
 
@@ -14,6 +14,7 @@ using namespace FMM::NETWORK;
 using namespace FMM::ROUTING;
 using namespace FMM::MM;
 using namespace FMM::PYTHON;
+using namespace FMM::ROUTING;
 
 WEIGHTMATCHConfig::WEIGHTMATCHConfig(int k_arg, double r_arg, double gps_error_arg):
   k(k_arg), radius(r_arg), gps_error(gps_error_arg) {
@@ -58,39 +59,13 @@ bool WEIGHTMATCHConfig::validate() const {
   return true;
 }
 
-PyMatchResult WEIGHTMATCH::match_wkt(
-  const std::string &wkt, const WEIGHTMATCHConfig &config) {
-  LineString line = wkt2linestring(wkt);
-  std::vector<double> timestamps;
-  Trajectory traj{0, line, timestamps};
-  MatchResult result = match_traj(traj, config);
-  PyMatchResult output;
-  output.id = result.id;
-  output.opath = result.opath;
-  output.cpath = result.cpath;
-  output.mgeom = result.mgeom;
-  output.indices = result.indices;
-  for (int i = 0; i < result.opt_candidate_path.size(); ++i) {
-    const MatchedCandidate &mc = result.opt_candidate_path[i];
-    output.candidates.push_back(
-      {i,
-       mc.c.edge->id,
-       graph_.get_node_id(mc.c.edge->source),
-       graph_.get_node_id(mc.c.edge->target),
-       mc.c.dist,
-       mc.c.offset,
-       mc.c.edge->length,
-       mc.ep,
-       mc.tp,
-       mc.sp_dist}
-      );
-    output.pgeom.add_point(mc.c.point);
-  }
-  return output;
-};
-
 // Procedure of HMM based map matching algorithm.
-MatchResult WEIGHTMATCH::match_traj(const Trajectory &traj, const WEIGHTMATCHConfig &config) {
+MatchResult WEIGHTMATCH::match_traj(
+  const Trajectory &traj, 
+  const WEIGHTMATCHConfig &config, 
+  DijkstraState& state, 
+  IndexedMinHeap& heap
+) {
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
   Traj_Candidates tc = network_.search_tr_cs_knn(traj.geom, config.k, config.radius);
@@ -102,7 +77,7 @@ MatchResult WEIGHTMATCH::match_traj(const Trajectory &traj, const WEIGHTMATCHCon
   TransitionGraph tg(tc, config.gps_error);
 
   SPDLOG_DEBUG("Update cost in transition graph");
-  update_tg(&tg, traj, config);
+  update_tg(&tg, traj, config, state, heap);
 
   SPDLOG_DEBUG("Optimal path inference");
   TGOpath tg_opath = tg.backtrack();
@@ -131,7 +106,7 @@ MatchResult WEIGHTMATCH::match_traj(const Trajectory &traj, const WEIGHTMATCHCon
   );
 
   std::vector<int> indices;
-  C_Path cpath = build_cpath(tg_opath, &indices);
+  C_Path cpath = build_cpath(tg_opath, &indices, state, heap);
   SPDLOG_DEBUG("Opath is {}", opath);
   SPDLOG_DEBUG("Indices is {}", indices);
   SPDLOG_DEBUG("Complete path is {}", cpath);
@@ -141,102 +116,32 @@ MatchResult WEIGHTMATCH::match_traj(const Trajectory &traj, const WEIGHTMATCHCon
   return MatchResult{traj.id, matched_candidate_path, opath, cpath, indices, mgeom};
 }
 
-std::string WEIGHTMATCH::match_gps_file(
-  const FMM::CONFIG::GPSConfig &gps_config,
-  const FMM::CONFIG::ResultConfig &result_config,
-  const WEIGHTMATCHConfig &weightmatch_config,
-  bool use_omp
-  ){
-  std::ostringstream oss;
-  std::string status;
-  bool validate = true;
-  if (!gps_config.validate()) {
-    oss<<"gps_config invalid\n";
-    validate = false;
-  }
-  if (!result_config.validate()) {
-    oss<<"result_config invalid\n";
-    validate = false;
-  }
-  if (!weightmatch_config.validate()) {
-    oss<<"WEIGHTMATCH_config invalid\n";
-    validate = false;
-  }
-  if (!validate) {
-    oss<<"match_gps_file canceled\n";
-    return oss.str();
-  }
-  // Start map matching
-  int progress = 0;
-  int points_matched = 0;
-  int total_points = 0;
-  int step_size = 1000;
-  auto begin_time = UTIL::get_current_time();
-  FMM::IO::GPSReader reader(gps_config);
-  FMM::IO::CSVMatchResultWriter writer(result_config.file, result_config.output_config);
-  if (use_omp) {
-    int buffer_trajectories_size = 100000;
-    while (reader.has_next_trajectory()) {
-      std::vector<Trajectory> trajectories =
-        reader.read_next_N_trajectories(buffer_trajectories_size);
-      int trajectories_fetched = trajectories.size();
-      #pragma omp parallel for
-      for (int i = 0; i < trajectories_fetched; ++i) {
-        Trajectory &trajectory = trajectories[i];
-        int points_in_tr = trajectory.geom.get_num_points();
-        MM::MatchResult result = match_traj(trajectory, weightmatch_config);
-        writer.write_result(trajectory,result);
-        #pragma omp critical
-        if (!result.cpath.empty()) {
-          points_matched += points_in_tr;
-        }
-        total_points += points_in_tr;
-        ++progress;
-        if (progress % step_size == 0) {
-          std::stringstream buf;
-          buf << "Progress " << progress << '\n';
-          std::cout << buf.rdbuf();
-        }
-      }
-    }
-  } else {
-    while (reader.has_next_trajectory()) {
-      if (progress % step_size == 0) {
-        SPDLOG_INFO("Progress {}", progress);
-      }
-      Trajectory trajectory = reader.read_next_trajectory();
-      int points_in_tr = trajectory.geom.get_num_points();
-      MM::MatchResult result = match_traj(trajectory, weightmatch_config);
-      writer.write_result(trajectory,result);
-      if (!result.cpath.empty()) {
-        points_matched += points_in_tr;
-      }
-      total_points += points_in_tr;
-      ++progress;
-    }
-  }
-  auto end_time = UTIL::get_current_time();
-  double duration = UTIL::get_duration(begin_time,end_time);
-  oss<<"Status: success\n";
-  oss<<"Time takes " << duration << " seconds\n";
-  oss<<"Total points " << total_points << " matched "<< points_matched <<"\n";
-  oss<<"Map match speed " << points_matched / duration << " points/s \n";
-  return oss.str();
-};
-
-void WEIGHTMATCH::update_tg(TransitionGraph *tg, const Trajectory &traj, const WEIGHTMATCHConfig &config) {
+void WEIGHTMATCH::update_tg(
+  TransitionGraph *tg, 
+  const Trajectory &traj, 
+  const WEIGHTMATCHConfig &config, 
+  DijkstraState& state, 
+  IndexedMinHeap& heap
+) {
   SPDLOG_DEBUG("Update transition graph");
   std::vector<TGLayer> &layers = tg->get_layers();
   std::vector<double> eu_dists = ALGORITHM::cal_eu_dist(traj.geom);
   int N = layers.size();
   for (int i = 0; i < N - 1; ++i) {
     // Routing from current_layer to next_layer
-    update_layer(i, &(layers[i]), &(layers[i + 1]), eu_dists[i]);
+    update_layer(i, &(layers[i]), &(layers[i + 1]), eu_dists[i], state, heap);
   }
   SPDLOG_DEBUG("Update transition graph done");
 }
 
-void WEIGHTMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double eu_dist) {
+void WEIGHTMATCH::update_layer(
+  int level, 
+  TGLayer *la_ptr, 
+  TGLayer *lb_ptr, 
+  double eu_dist, 
+  DijkstraState& state, 
+  IndexedMinHeap& heap
+) {
   SPDLOG_DEBUG("Update layer {} starts", level);
   TGLayer &lb = *lb_ptr;
   for (auto iter_a = la_ptr->begin(); iter_a != la_ptr->end(); ++iter_a) {
@@ -250,33 +155,35 @@ void WEIGHTMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, doub
     });
 
     std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
-        network_,
+        graph_,
+        state,
+        heap,
         source,
-        targets);
-    for (auto& it: paths) {
-        // Do stuff
-        SPDLOG_TRACE("{} {}", it.first, it.second.total_cost);
-        SPDLOG_TRACE("PATH: {}", it.second.edges);
-    }
+        targets
+    );
 
     for (auto iter_b = lb_ptr->begin(); iter_b != lb_ptr->end(); ++iter_b) {
       int i = std::distance(lb_ptr->begin(), iter_b);
       
       double path_distance;
-      if (iter_a->c->edge->id == iter_b->c->edge->id) {
+      Edge* source_edge = iter_a->c->edge;
+      Edge* target_edge = iter_b->c->edge;
+      if (source_edge->id == target_edge->id) {
         path_distance = eu_dist;
       } else {
-        double first_link_adjustment = iter_a->c->edge->weight * (iter_a->c->edge->length - iter_a->c->offset);
-        double last_link_adjustment = iter_b->c->edge->weight * (iter_b->c->offset - iter_b->c->edge->length);
-        path_distance = first_link_adjustment + paths.at(iter_b->c->edge->index).total_cost + last_link_adjustment;
+        path_distance = (
+          source_edge->weight * (source_edge->length - iter_a->c->offset)// first_link_adjustment 
+          + paths.at(target_edge->index).total_cost 
+          + target_edge->weight * (iter_b->c->offset - target_edge->length) // last_link_adjustment
+        );
       }
 
       double tp = TransitionGraph::calc_tp(path_distance, eu_dist);
       double temp = iter_a->cumu_prob + log(tp) + log(iter_b->ep);
-      SPDLOG_TRACE("L {} f {} t {} sp {} dist {} tp {} ep {} fcp {} tcp {}",
-        level, iter_a->c->edge->id,iter_b->c->edge->id,
-        path_distance, eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
-        temp);
+      // SPDLOG_TRACE("L {} f {} t {} sp {} dist {} tp {} ep {} fcp {} tcp {}",
+      //   level, iter_a->c->edge->id,iter_b->c->edge->id,
+      //   path_distance, eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
+      //   temp);
       if (temp >= iter_b->cumu_prob) {
         iter_b->cumu_prob = temp;
         iter_b->prev = &(*iter_a);
@@ -288,7 +195,12 @@ void WEIGHTMATCH::update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, doub
   SPDLOG_DEBUG("Update layer done");
 }
 
-C_Path WEIGHTMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices) {
+C_Path WEIGHTMATCH::build_cpath(
+  const TGOpath &opath, 
+  std::vector<int> *indices, 
+  DijkstraState& state, 
+  IndexedMinHeap& heap
+) {
   SPDLOG_DEBUG("Build cpath from optimal candidate path");
   C_Path cpath;
   if (!indices->empty()) indices->clear();
@@ -302,25 +214,36 @@ C_Path WEIGHTMATCH::build_cpath(const TGOpath &opath, std::vector<int> *indices)
   for (int i = 0; i < N - 1; ++i) {
     const Candidate *a = opath[i]->c;
     const Candidate *b = opath[i + 1]->c;
-    // SPDLOG_TRACE("Check a {} b {}", a->edge->id, b->edge->id);
-    if (a->edge->id != b->edge->id) {
-      Path path = shortest_edge_to_edge(
-        network_,
-        a->edge->index,
-        b->edge->index);
-      std::vector<EdgeIndex> segs = path.edges;
+    
+    Edge* source_edge = a->edge;
+    Edge* target_edge = b->edge;
+    if (source_edge->id != target_edge->id) {
+      std::vector<EdgeIndex> target;
+      target.push_back(b->edge->index);
+      std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
+        graph_,
+        state,
+        heap,
+        source_edge->index,
+        target
+      );
+      std::vector<EdgeIndex> segs = paths.at(target_edge->index).edges;
+
       // No transition found
-      if (segs.empty() && a->edge->target != b->edge->source) {
-        SPDLOG_TRACE("Candidate {} has disconnected edge {} to {}",
-          i, a->edge->id, b->edge->id);
+      if (segs.empty() && source_edge->target != target_edge->source) {
+        SPDLOG_TRACE(
+          "Candidate {} has disconnected edge {} to {}",
+          i, source_edge->id, target_edge->id
+        );
         indices->clear();
         return {};
       }
+
       for (int e:segs) {
         cpath.push_back(edges[e].id);
         ++current_idx;
       }
-      cpath.push_back(b->edge->id);
+      cpath.push_back(target_edge->id);
       ++current_idx;
       indices->push_back(current_idx);
     } else {

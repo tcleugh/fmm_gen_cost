@@ -5,10 +5,11 @@ using namespace FMM;
 using namespace FMM::CORE;
 using namespace FMM::NETWORK;
 using namespace FMM::MM;
+using namespace FMM::ROUTING;
 
 void WEIGHTMATCHApp::run() {
   auto start_time = UTIL::get_current_time();
-  WEIGHTMATCH mm_model(network_, ng_);
+  WEIGHTMATCH mm_model(network_, lg_);
   const WEIGHTMATCHConfig &weightmatch_config = config_.weightmatch_config;
   IO::GPSReader reader(config_.gps_config);
   IO::CSVMatchResultWriter writer(config_.result_config.file, config_.result_config.output_config);
@@ -28,17 +29,26 @@ void WEIGHTMATCHApp::run() {
   
     int buffer_trajectories_size = 100000;
     while (reader.has_next_trajectory()) {
-      std::vector<Trajectory> trajectories =
+      std::vector<Trajectory> trajectories = 
         reader.read_next_N_trajectories(buffer_trajectories_size);
       int trajectories_fetched = trajectories.size();
 
-      #pragma omp parallel for
+      #pragma omp parallel 
+      {
+      DijkstraState state;
+      IndexedMinHeap heap;
+
+      #pragma omp for
       for (int i = 0; i < trajectories_fetched; ++i) {
         Trajectory &trajectory = trajectories[i];
         int points_in_tr = trajectory.geom.get_num_points();
         MM::MatchResult result = mm_model.match_traj(
-            trajectory, weightmatch_config);
-        writer.write_result(trajectory,result);
+            trajectory, 
+            weightmatch_config,
+            state,
+            heap
+          );
+        writer.write_result(trajectory, result);
 
         #pragma omp critical
         if (!result.cpath.empty()) {
@@ -54,8 +64,11 @@ void WEIGHTMATCHApp::run() {
         }
       }
     }
+  }
   } else {
     SPDLOG_INFO("Run map matching in single thread");
+    DijkstraState state;
+    IndexedMinHeap heap;
     while (reader.has_next_trajectory()) {
       if (progress % step_size == 0) {
         SPDLOG_INFO("Progress {}", progress);
@@ -64,7 +77,12 @@ void WEIGHTMATCHApp::run() {
       Trajectory trajectory = reader.read_next_trajectory();
       int points_in_tr = trajectory.geom.get_num_points();
 
-      MM::MatchResult result = mm_model.match_traj(trajectory, weightmatch_config);
+      MM::MatchResult result = mm_model.match_traj(
+        trajectory, 
+        weightmatch_config, 
+        state, 
+        heap
+      );
       writer.write_result(trajectory,result);
 
       if (!result.cpath.empty()) {
