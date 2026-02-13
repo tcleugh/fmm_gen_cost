@@ -5,6 +5,7 @@
 #include "io/gps_reader.hpp"
 #include "io/mm_writer.hpp"
 #include "network/link_graph_routing.hpp"
+#include "network/routing_cache.hpp"
 
 #include <limits>
 
@@ -66,7 +67,8 @@ MatchResult WEIGHTMATCH::match_traj(
   DijkstraState& state, 
   IndexedMinHeap& heap
 ) {
-  SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
+  int traj_size = traj.geom.get_num_points();
+  SPDLOG_DEBUG("Count of points in trajectory {}", traj_size);
   SPDLOG_DEBUG("Search candidates");
   Traj_Candidates tc = network_.search_tr_cs_knn(traj.geom, config.k, config.radius);
 
@@ -76,8 +78,11 @@ MatchResult WEIGHTMATCH::match_traj(
   SPDLOG_DEBUG("Generate transition graph");
   TransitionGraph tg(tc, config.gps_error);
 
+  RoutingCache rc;
+  rc.reserve((traj_size - 1) * config.k * config.k);
+
   SPDLOG_DEBUG("Update cost in transition graph");
-  update_tg(&tg, traj, config, state, heap);
+  update_tg(&tg, traj, config, state, heap, rc);
 
   SPDLOG_DEBUG("Optimal path inference");
   TGOpath tg_opath = tg.backtrack();
@@ -106,7 +111,7 @@ MatchResult WEIGHTMATCH::match_traj(
   );
 
   std::vector<int> indices;
-  C_Path cpath = build_cpath(tg_opath, &indices, state, heap);
+  C_Path cpath = build_cpath(tg_opath, &indices, state, heap, rc);
   SPDLOG_DEBUG("Opath is {}", opath);
   SPDLOG_DEBUG("Indices is {}", indices);
   SPDLOG_DEBUG("Complete path is {}", cpath);
@@ -121,7 +126,8 @@ void WEIGHTMATCH::update_tg(
   const Trajectory &traj, 
   const WEIGHTMATCHConfig &config, 
   DijkstraState& state, 
-  IndexedMinHeap& heap
+  IndexedMinHeap& heap,
+  RoutingCache& rc
 ) {
   SPDLOG_DEBUG("Update transition graph");
   std::vector<TGLayer> &layers = tg->get_layers();
@@ -129,7 +135,7 @@ void WEIGHTMATCH::update_tg(
   int N = layers.size();
   for (int i = 0; i < N - 1; ++i) {
     // Routing from current_layer to next_layer
-    update_layer(i, &(layers[i]), &(layers[i + 1]), eu_dists[i], state, heap);
+    update_layer(i, &(layers[i]), &(layers[i + 1]), eu_dists[i], state, heap, rc);
   }
   SPDLOG_DEBUG("Update transition graph done");
 }
@@ -140,7 +146,8 @@ void WEIGHTMATCH::update_layer(
   TGLayer *lb_ptr, 
   double eu_dist, 
   DijkstraState& state, 
-  IndexedMinHeap& heap
+  IndexedMinHeap& heap,
+  RoutingCache& rc
 ) {
   SPDLOG_DEBUG("Update layer {} starts", level);
   TGLayer &lb = *lb_ptr;
@@ -154,7 +161,7 @@ void WEIGHTMATCH::update_layer(
       return a.c->edge->index;
     });
 
-    std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
+    std::unordered_map<EdgeIndex, Path> paths = rc.get_or_compute(
         graph_,
         state,
         heap,
@@ -199,7 +206,8 @@ C_Path WEIGHTMATCH::build_cpath(
   const TGOpath &opath, 
   std::vector<int> *indices, 
   DijkstraState& state, 
-  IndexedMinHeap& heap
+  IndexedMinHeap& heap,
+  RoutingCache& rc
 ) {
   SPDLOG_DEBUG("Build cpath from optimal candidate path");
   C_Path cpath;
@@ -218,19 +226,16 @@ C_Path WEIGHTMATCH::build_cpath(
     Edge* source_edge = a->edge;
     Edge* target_edge = b->edge;
     if (source_edge->id != target_edge->id) {
-      std::vector<EdgeIndex> target;
-      target.push_back(b->edge->index);
-      std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
+      Path path = rc.get_or_compute_one(
         graph_,
         state,
         heap,
         source_edge->index,
-        target
+        target_edge->index
       );
-      std::vector<EdgeIndex> segs = paths.at(target_edge->index).edges;
 
       // No transition found
-      if (segs.empty() && source_edge->target != target_edge->source) {
+      if (!path.found) {
         SPDLOG_TRACE(
           "Candidate {} has disconnected edge {} to {}",
           i, source_edge->id, target_edge->id
@@ -239,7 +244,7 @@ C_Path WEIGHTMATCH::build_cpath(
         return {};
       }
 
-      for (int e:segs) {
+      for (int e : path.edges) {
         cpath.push_back(edges[e].id);
         ++current_idx;
       }
