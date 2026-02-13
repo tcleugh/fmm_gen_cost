@@ -10,7 +10,6 @@
 #include "config/gps_config.hpp"
 #include "config/result_config.hpp"
 #include "network/link_graph_routing.hpp"
-#include "network/routing_cache.hpp"
 
 #include <string>
 #include <boost/property_tree/ptree.hpp>
@@ -96,8 +95,7 @@ protected:
     const CORE::Trajectory &traj, 
     const WEIGHTMATCHConfig &config,
     DijkstraState& state, 
-    IndexedMinHeap& heap,
-    RoutingCache& rc
+    IndexedMinHeap& heap
   );
   /**
    * Update probabilities between two layers a and b in the transition graph
@@ -112,8 +110,7 @@ protected:
     TGLayer *lb_ptr, 
     double eu_dist, 
     DijkstraState& state, 
-    IndexedMinHeap& heap,
-    RoutingCache& rc
+    IndexedMinHeap& heap
   );
   /**
    * Create a topologically connected path according to each matched
@@ -127,8 +124,7 @@ protected:
     const TGOpath &tg_opath, 
     std::vector<int> *indices,     
     DijkstraState& state, 
-    IndexedMinHeap& heap,
-    RoutingCache& rc
+    IndexedMinHeap& heap
   );
 private:
   const NETWORK::Network& network_;
