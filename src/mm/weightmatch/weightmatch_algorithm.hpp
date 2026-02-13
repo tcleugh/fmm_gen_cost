@@ -9,12 +9,16 @@
 #include "python/pyfmm.hpp"
 #include "config/gps_config.hpp"
 #include "config/result_config.hpp"
+#include "network/link_graph_routing.hpp"
 
 #include <string>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
 #include "cxxopts/cxxopts.hpp"
+
+using namespace FMM::ROUTING;
+using namespace FMM::CORE;
 
 namespace FMM {
 namespace MM {
@@ -64,39 +68,21 @@ public:
   /**
    * Create a stmatch model from network and graph
    */
-  WEIGHTMATCH(const NETWORK::Network &network, const NETWORK::NetworkGraph &graph) :
+  WEIGHTMATCH(const NETWORK::Network &network, const ROUTING::LinkGraph &graph) :
     network_(network), graph_(graph) {
   };
-  /**
-   * Match a wkt linestring to the road network.
-   * @param wkt WKT representation of a trajectory
-   * @param config Map matching configuration
-   * @return Map matching result in POD format used in Python API
-   */
-  PYTHON::PyMatchResult match_wkt(
-    const std::string &wkt,const WEIGHTMATCHConfig &config);
   /**
    * Match a trajectory to the road network
    * @param  traj   input trajector data
    * @param  config configuration of weightmatch algorithm
    * @return map matching result
    */
-  MatchResult match_traj(const CORE::Trajectory &traj,
-                         const WEIGHTMATCHConfig &config);
-  /**
-   * Match GPS data stored in a file
-   * @param  gps_config    [description]
-   * @param  result_config [description]
-   * @param  config        [description]
-   * @return a string storing information about running time and
-   * statistics.
-   */
-  std::string match_gps_file(
-    const FMM::CONFIG::GPSConfig &gps_config,
-    const FMM::CONFIG::ResultConfig &result_config,
-    const WEIGHTMATCHConfig &config,
-    bool use_omp = true
-    );
+  MatchResult match_traj(
+    const Trajectory &traj, 
+    const WEIGHTMATCHConfig &config, 
+    DijkstraState& state, 
+    IndexedMinHeap& heap
+  );
 protected:
   /**
    * Update probabilities in a transition graph
@@ -104,7 +90,13 @@ protected:
    * @param traj raw trajectory
    * @param config map match configuration
    */
-  void update_tg(TransitionGraph *tg, const CORE::Trajectory &traj, const WEIGHTMATCHConfig &config);
+  void update_tg(
+    TransitionGraph *tg, 
+    const CORE::Trajectory &traj, 
+    const WEIGHTMATCHConfig &config,
+    DijkstraState& state, 
+    IndexedMinHeap& heap
+  );
   /**
    * Update probabilities between two layers a and b in the transition graph
    * @param level   the index of layer a
@@ -112,7 +104,14 @@ protected:
    * @param lb_ptr  layer b next to a
    * @param eu_dist Euclidean distance between two observed point
    */
-  void update_layer(int level, TGLayer *la_ptr, TGLayer *lb_ptr, double eu_dist);
+  void update_layer(
+    int level, 
+    TGLayer *la_ptr, 
+    TGLayer *lb_ptr, 
+    double eu_dist, 
+    DijkstraState& state, 
+    IndexedMinHeap& heap
+  );
   /**
    * Create a topologically connected path according to each matched
    * candidate
@@ -121,12 +120,17 @@ protected:
    * edge or candidate in the returned path.
    * @return A vector of edge id representing the traversed path
    */
-  C_Path build_cpath(const TGOpath &tg_opath, std::vector<int> *indices);
+  C_Path build_cpath(
+    const TGOpath &tg_opath, 
+    std::vector<int> *indices,     
+    DijkstraState& state, 
+    IndexedMinHeap& heap
+  );
 private:
-  const NETWORK::Network &network_;
-  const NETWORK::NetworkGraph &graph_;
-};// WEIGHTMATCH
-}
+  const NETWORK::Network& network_;
+  const ROUTING::LinkGraph& graph_;
+}; // WEIGHTMATCH
+} // MM
 } // FMM
 
 #endif

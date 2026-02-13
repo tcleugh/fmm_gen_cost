@@ -2,6 +2,7 @@
 #ifndef FMM_WEIGHTMATCH_APP_H_
 #define FMM_WEIGHTMATCH_APP_H_
 
+#include "network/link_graph_routing.hpp"
 #include "mm/weightmatch/weightmatch_app_config.hpp"
 #include "mm/weightmatch/weightmatch_algorithm.hpp"
 #include "io/gps_reader.hpp"
@@ -21,7 +22,8 @@ public:
   WEIGHTMATCHApp(const WEIGHTMATCHAppConfig &config):
       config_(config),
       network_(config_.network_config),
-      ng_(network_){};
+      lg_(network_)
+      {};
   /**
    * Run the weightmatch program
    */
@@ -29,7 +31,7 @@ public:
  private:
   const WEIGHTMATCHAppConfig &config_;
   NETWORK::Network network_;
-  NETWORK::NetworkGraph ng_;
+  ROUTING::LinkGraph lg_;
 };
 }
 }

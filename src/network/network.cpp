@@ -71,7 +71,8 @@ void Network::add_edge(
     t_idx = node_map[target];
   }
   EdgeIndex index = edges.size();
-  edges.push_back({index, edge_id, s_idx, t_idx, geom.get_length(), weight, geom});
+  double edge_length = geom.get_length();
+  edges.push_back({index, edge_id, s_idx, t_idx, edge_length, weight, edge_length * weight, geom});
   edge_map.insert({edge_id, index});
 };
 
@@ -186,7 +187,8 @@ void Network::read_ogr_file(
     } else {
       t_idx = node_map[target];
     }
-    edges.push_back({index, id, s_idx, t_idx, geom.get_length(), weight, geom});
+    double edge_length = geom.get_length();
+    edges.push_back({index, id, s_idx, t_idx, edge_length, weight, edge_length * weight, geom});
     edge_map.insert({id, index});
     ++index;
     OGRFeature::DestroyFeature(ogrFeature);
