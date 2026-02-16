@@ -38,7 +38,7 @@ void WEIGHTMATCHApp::run() {
       DijkstraState state;
       IndexedMinHeap heap;
 
-      #pragma omp for
+      #pragma omp for schedule(guided, 1)
       for (int i = 0; i < trajectories_fetched; ++i) {
         Trajectory &trajectory = trajectories[i];
         int points_in_tr = trajectory.geom.get_num_points();
