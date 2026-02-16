@@ -263,10 +263,14 @@ C_Path WEIGHTMATCH::build_cpath(
         return {};
       }
 
-      for (int e:segs) {
-        cpath.push_back(edges[e].id);
-        ++current_idx;
+      if (segs.size() > 2) {
+        for (auto it = std::next(segs.begin());it != std::prev(segs.end()); ++it) {
+          int e = *it;
+          cpath.push_back(edges[e].id);
+          ++current_idx;
+        }
       }
+      
       cpath.push_back(target_edge->id);
       ++current_idx;
       indices->push_back(current_idx);
