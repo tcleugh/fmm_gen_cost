@@ -33,11 +33,16 @@ struct WEIGHTMATCHConfig {
    * @param r_arg the search radius, in map unit, which is the same as
    * GPS data and network data.
    * @param gps_error_arg the gps error, in map unit
+   * @param backup_k_arg the number of candidates to use for backup search
+   * @param backup_r_arg the expanded search radius if no candidates are found in the inital search, 
+   * in map unit, which is the same as GPS data and network data.
    */
-  WEIGHTMATCHConfig(int k_arg = 8, double r_arg = 300, double gps_error_arg = 50);
+  WEIGHTMATCHConfig(int k_arg = 8, double r_arg = 300, double gps_error_arg = 50, int backup_k_arg = -1, double backup_r_arg = -1);
   int k; /**< number of candidates */
   double radius; /**< search radius for candidates, unit is map_unit*/
   double gps_error; /**< GPS error, unit is map_unit */
+  int backup_k;
+  double backup_radius;
   /**
    * Check the validity of the configuration
    */

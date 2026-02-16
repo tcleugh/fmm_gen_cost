@@ -317,60 +317,117 @@ Traj_Candidates Network::search_tr_cs_knn(
   Traj_Candidates tr_cs(NumberPoints);
   unsigned int current_candidate_index = num_vertices;
   for (int i = 0; i < NumberPoints; ++i) {
-    // SPDLOG_DEBUG("Search candidates for point index {}",i);
-    // Construct a bounding boost_box
-    double px = geom.get_x(i);
-    double py = geom.get_y(i);
-    Point_Candidates pcs;
-    boost_box b(Point(geom.get_x(i) - radius, geom.get_y(i) - radius),
-                Point(geom.get_x(i) + radius, geom.get_y(i) + radius));
-    std::vector<Item> temp;
-    // Rtree can only detect intersect with a the bounding box of
-    // the geometry stored.
-    rtree.query(boost::geometry::index::intersects(b),
-                std::back_inserter(temp));
-    int Nitems = temp.size();
-    for (unsigned int j = 0; j < Nitems; ++j) {
-      // Check for detailed intersection
-      // The two edges are all in OGR_linestring
-      Edge *edge = temp[j].second;
-      double offset;
-      double dist;
-      double closest_x, closest_y;
-      ALGORITHM::linear_referencing(px, py, edge->geom,
-                                    &dist, &offset, &closest_x, &closest_y);
-      if (dist <= radius) {
-        // index, offset, dist, edge, pseudo id, point
-        Candidate c = {0,
-                       offset,
-                       dist,
-                       edge,
-                       Point(closest_x, closest_y)};
-        pcs.push_back(c);
-      }
-    }
-    SPDLOG_DEBUG("Candidate count point {}: {} (filter to k)",i,pcs.size());
+    bool is_backup = false;
+    Point_Candidates pcs = get_all_candidates(geom.get_x(i), geom.get_y(i), radius);
+    SPDLOG_DEBUG("Candidate count point {}: {} (filter to k)", i, pcs.size());
+
     if (pcs.empty()) {
-      SPDLOG_DEBUG("Candidate not found for point {}: {} {}",i,px,py);
+      SPDLOG_DEBUG("Candidate not found for point {}: {} {}", i, geom.get_x(i), geom.get_y(i));
       return Traj_Candidates();
     }
     // KNN part
-    if (pcs.size() <= k) {
-      tr_cs[i] = pcs;
-    } else {
-      tr_cs[i] = Point_Candidates(k);
-      std::partial_sort_copy(
-        pcs.begin(), pcs.end(),
-        tr_cs[i].begin(), tr_cs[i].end(),
-        candidate_compare);
-    }
-    for (int m = 0; m < tr_cs[i].size(); ++m) {
-      tr_cs[i][m].index = current_candidate_index + m;
-    }
+    filter_candidates(pcs, tr_cs[i], k, current_candidate_index);
     current_candidate_index += tr_cs[i].size();
   }
   return tr_cs;
 }
+
+Traj_Candidates Network::search_tr_cs_knn_with_fallback(
+  const LineString &geom, 
+  std::size_t k,
+  double radius,
+  std::size_t backup_k,
+  double backup_radius
+) const {
+  int NumberPoints = geom.get_num_points();
+  Traj_Candidates tr_cs(NumberPoints);
+  unsigned int current_candidate_index = num_vertices;
+  for (int i = 0; i < NumberPoints; ++i) {
+    bool is_backup = false;
+    Point_Candidates pcs = get_all_candidates(geom.get_x(i), geom.get_y(i), radius);
+    SPDLOG_DEBUG("Candidate count point {}: {} (filter to k)", i, pcs.size());
+
+    if (pcs.empty()) {
+      SPDLOG_DEBUG("Candidate not found for point {}: {} {}", i, geom.get_x(i), geom.get_y(i));
+      if (backup_radius > radius) {
+        is_backup = true;
+        pcs = get_all_candidates(geom.get_x(i), geom.get_y(i), backup_radius);
+        if (pcs.empty()) {
+          SPDLOG_DEBUG("Candidate not found in backup radius either, trip will not be matched");
+          return Traj_Candidates();
+        }
+
+      } else {
+        return Traj_Candidates();
+      }
+    }
+    // KNN part
+    filter_candidates(pcs, tr_cs[i], is_backup ? backup_k : k, current_candidate_index);
+    current_candidate_index += tr_cs[i].size();
+  }
+  return tr_cs;
+}
+
+Point_Candidates Network::get_all_candidates(double px, double py, double radius) const {
+  // Construct a bounding boost_box
+  Point_Candidates pcs;
+  boost_box b(Point(px - radius, py - radius), Point(px + radius, py + radius));
+  std::vector<Item> temp;
+  // Rtree can only detect intersect with a the bounding box of the geometry stored.
+  rtree.query(boost::geometry::index::intersects(b), std::back_inserter(temp));
+  int Nitems = temp.size();
+  for (unsigned int j = 0; j < Nitems; ++j) {
+    // Check for detailed intersection
+    // The two edges are all in OGR_linestring
+    Edge *edge = temp[j].second;
+    double offset;
+    double dist;
+    double closest_x, closest_y;
+    ALGORITHM::linear_referencing(
+      px, 
+      py, 
+      edge->geom,
+      &dist, 
+      &offset, 
+      &closest_x, 
+      &closest_y
+    );
+    if (dist <= radius) {
+      // index, offset, dist, edge, pseudo id, point
+      Candidate c = {
+        0,
+        offset,
+        dist,
+        edge,
+        Point(closest_x, closest_y)
+      };
+      pcs.push_back(c);
+    }
+  }
+  return pcs;
+}
+
+void Network::filter_candidates(
+  const Point_Candidates& all_candidates, 
+  Point_Candidates& traj_candidates, 
+  int k, 
+  int current_index
+) const {
+    if (all_candidates.size() <= k) {
+      traj_candidates = all_candidates;
+    } else {
+      traj_candidates = Point_Candidates(k);
+      std::partial_sort_copy(
+        all_candidates.begin(), all_candidates.end(),
+        traj_candidates.begin(), traj_candidates.end(),
+        candidate_compare
+      );
+    }
+    for (int m = 0; m < traj_candidates.size(); ++m) {
+      traj_candidates[m].index = current_index + m;
+    }
+}
+
 
 const LineString &Network::get_edge_geom(EdgeID edge_id) const {
   return edges[get_edge_index(edge_id)].geom;

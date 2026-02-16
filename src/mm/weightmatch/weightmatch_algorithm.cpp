@@ -16,13 +16,13 @@ using namespace FMM::MM;
 using namespace FMM::PYTHON;
 using namespace FMM::ROUTING;
 
-WEIGHTMATCHConfig::WEIGHTMATCHConfig(int k_arg, double r_arg, double gps_error_arg):
-  k(k_arg), radius(r_arg), gps_error(gps_error_arg) {
+WEIGHTMATCHConfig::WEIGHTMATCHConfig(int k_arg, double r_arg, double gps_error_arg, int backup_k_arg, double backup_r_arg):
+  k(k_arg), radius(r_arg), gps_error(gps_error_arg), backup_k(backup_k_arg), backup_radius(backup_r_arg) {
 };
 
 void WEIGHTMATCHConfig::print() const {
   SPDLOG_INFO("WEIGHTMATCHAlgorithmConfig");
-  SPDLOG_INFO("k {} radius {} gps_error {}", k, radius, gps_error);
+  SPDLOG_INFO("k {} radius {} gps_error {} backup_k {} backup_radius {}", k, radius, gps_error, backup_k, backup_radius);
 };
 
 WEIGHTMATCHConfig WEIGHTMATCHConfig::load_from_arg(
@@ -30,7 +30,9 @@ WEIGHTMATCHConfig WEIGHTMATCHConfig::load_from_arg(
   int k = arg_data["candidates"].as<int>();
   double radius = arg_data["radius"].as<double>();
   double gps_error = arg_data["error"].as<double>();
-  return WEIGHTMATCHConfig{k, radius, gps_error};
+  int backup_k = arg_data["backup_candidates"].as<int>();
+  double backup_radius = arg_data["backup_radius"].as<double>();
+  return WEIGHTMATCHConfig{k, radius, gps_error, backup_k, backup_radius};
 };
 
 void WEIGHTMATCHConfig::register_arg(cxxopts::Options &options){
@@ -40,7 +42,11 @@ void WEIGHTMATCHConfig::register_arg(cxxopts::Options &options){
     ("r,radius","Search radius",
     cxxopts::value<double>()->default_value("300.0"))
     ("e,error","GPS error",
-    cxxopts::value<double>()->default_value("50.0"));
+    cxxopts::value<double>()->default_value("50.0"))
+    ("backup_candidates","Number of candidates in fallback radius",
+    cxxopts::value<int>()->default_value("-1"))
+    ("backup_radius","Fallback search radius",
+    cxxopts::value<double>()->default_value("-1"));
 }
 
 void WEIGHTMATCHConfig::register_help(std::ostringstream &oss){
@@ -49,11 +55,25 @@ void WEIGHTMATCHConfig::register_help(std::ostringstream &oss){
     "radius (network data unit) (300)\n";
   oss<<"-e/--error (optional) <double>: GPS error "
     "(network data unit) (50)\n";
+  oss<<"--backup_candidates (optional) <int>: number of candidates to use in backup search (-1)\n";
+  oss<<"--backup_radius (optional) <double>: search "
+    "radius to use if initial search fails (network data unit) (-1)\n";  
 };
 
 bool WEIGHTMATCHConfig::validate() const {
   if (gps_error <= 0 || radius <= 0 || k <= 0) {
     SPDLOG_CRITICAL("Invalid mm parameter k {} r {} gps error {} ", k, radius, gps_error);
+    return false;
+  }
+  if (backup_radius >= 0 && backup_radius <= radius) {
+    SPDLOG_CRITICAL("If backup radius is set, it must be larger than radius: r {} backup_r {} ", radius, backup_radius);
+    return false;
+  }
+  if (
+      (backup_radius >= 0 && backup_k < 0)
+      || (backup_radius < 0 && backup_k >= 0)
+   ) {
+    SPDLOG_CRITICAL("If backup radius or candidates are set, then both must be set: backup_k {} backup_r {} ", backup_k, backup_radius);
     return false;
   }
   return true;
@@ -68,7 +88,13 @@ MatchResult WEIGHTMATCH::match_traj(
 ) {
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
-  Traj_Candidates tc = network_.search_tr_cs_knn(traj.geom, config.k, config.radius);
+  Traj_Candidates tc = network_.search_tr_cs_knn_with_fallback(
+    traj.geom, 
+    config.k, 
+    config.radius, 
+    config.backup_k, 
+    config.backup_radius
+  );
 
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
@@ -146,8 +172,6 @@ void WEIGHTMATCH::update_layer(
   TGLayer &lb = *lb_ptr;
   for (auto iter_a = la_ptr->begin(); iter_a != la_ptr->end(); ++iter_a) {
     NodeIndex source = iter_a->c->edge->index;
-    // SPDLOG_TRACE("  Calculate distance from source {}", source);
-    // single source upper bound routing
     std::vector<NodeIndex> targets(lb.size());
     std::transform(lb.begin(), lb.end(), targets.begin(),
                    [](TGNode &a) {
@@ -180,10 +204,10 @@ void WEIGHTMATCH::update_layer(
 
       double tp = TransitionGraph::calc_tp(path_distance, eu_dist);
       double temp = iter_a->cumu_prob + log(tp) + log(iter_b->ep);
-      // SPDLOG_TRACE("L {} f {} t {} sp {} dist {} tp {} ep {} fcp {} tcp {}",
-      //   level, iter_a->c->edge->id,iter_b->c->edge->id,
-      //   path_distance, eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
-      //   temp);
+      SPDLOG_TRACE("L {} f {} t {} sp {} dist {} tp {} ep {} fcp {} tcp {}",
+        level, iter_a->c->edge->id,iter_b->c->edge->id,
+        path_distance, eu_dist, tp, iter_b->ep, iter_a->cumu_prob,
+        temp);
       if (temp >= iter_b->cumu_prob) {
         iter_b->cumu_prob = temp;
         iter_b->prev = &(*iter_a);

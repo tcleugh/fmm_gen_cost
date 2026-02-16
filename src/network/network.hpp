@@ -128,8 +128,10 @@ public:
    *
    */
   FMM::MM::Traj_Candidates search_tr_cs_knn(
-    FMM::CORE::Trajectory &trajectory, std::size_t k, double radius) const;
-
+    FMM::CORE::Trajectory &trajectory, 
+    std::size_t k, 
+    double radius
+  ) const;
   /**
    * Search for k nearest neighboring (KNN) candidates of a
    * linestring within a search radius
@@ -140,9 +142,30 @@ public:
    * @return a 2D vector of Candidates containing
    * the candidates selected for each point in a linestring
    */
-  FMM::MM::Traj_Candidates search_tr_cs_knn(const FMM::CORE::LineString &geom,
-                                            std::size_t k,
-                                            double radius) const;
+  FMM::MM::Traj_Candidates search_tr_cs_knn(
+    const FMM::CORE::LineString &geom,
+    std::size_t k,
+    double radius
+  ) const;
+  /**
+   * Search for k nearest neighboring (KNN) candidates of a
+   * linestring within a search radius
+   *
+   * @param geom
+   * @param k number of candidates
+   * @param radius search radius
+   * @param backup_k number of candidates to consider in fallback radius
+   * @param backup_radius search radius to consider if no candidates in original radius
+   * @return a 2D vector of Candidates containing
+   * the candidates selected for each point in a linestring
+   */
+  FMM::MM::Traj_Candidates search_tr_cs_knn_with_fallback(
+    const FMM::CORE::LineString &geom,
+    std::size_t k,
+    double radius,
+    std::size_t backup_k,
+    double backup_radius
+  ) const;
   /**
    * Get edge geometry
    * @param edge_id edge id
@@ -224,6 +247,14 @@ private:
    * Build rtree for the network
    */
   void build_rtree_index();
+  FMM::MM::Point_Candidates get_all_candidates(double px, double py, double radius) const;
+  void filter_candidates(
+    const FMM::MM::Point_Candidates& all_candidates, 
+    FMM::MM::Point_Candidates& traj_candidates, 
+    int k, 
+    int current_index
+  ) const;
+
   int srid;   // Spatial reference id
   Rtree rtree;   // Network rtree structure
   std::vector<Edge> edges;   // all edges in the network
