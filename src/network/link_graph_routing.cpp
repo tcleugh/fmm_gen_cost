@@ -137,7 +137,9 @@ void DijkstraState::ensure_size(size_t E) {
     parent.resize(E);
     seen.assign(E, 0);
     settled.assign(E, 0);
+    goal_marker.assign(E, 0);
     epoch = 1;
+    goal_epoch = 0;
   }
 }
 
@@ -164,6 +166,26 @@ bool DijkstraState::is_settled(EdgeIndex v) const {
 
 void DijkstraState::mark_settled(EdgeIndex v) {
   settled[v] = epoch;
+}
+
+bool DijkstraState::is_goal(EdgeIndex v) const {
+  return goal_marker[v] == goal_epoch;
+}
+
+void DijkstraState::mark_goal(EdgeIndex v) {
+  goal_marker[v] = goal_epoch;
+}
+
+void DijkstraState::clear_goal(EdgeIndex v) {
+  goal_marker[v] = 0;  // any value != goal_epoch
+}
+
+void DijkstraState::next_goal_epoch() {
+  ++goal_epoch;
+  if (goal_epoch == 0) {
+    std::fill(goal_marker.begin(), goal_marker.end(), 0);
+    goal_epoch = 1;
+  }
 }
 
 void DijkstraState::next_epoch() {
@@ -197,43 +219,68 @@ Path reconstruct_path(const std::vector<EdgeIndex>& parent, EdgeIndex end_e) {
   return P;
 }
 
-std::unordered_map<EdgeIndex, Path> shortest_edge_to_edges(
+void shortest_edge_to_edges(
   const LinkGraph& G,
   DijkstraState& state,
   IndexedMinHeap& heap,
   EdgeIndex start_e,
-  const std::vector<EdgeIndex>& goal_edges
+  const std::vector<EdgeIndex>& goal_edges,
+  std::vector<Path>& out,
+  double upper_bound_factor
 ) {
   const size_t E = static_cast<size_t>(G.net().get_edge_count());
+  const size_t K = goal_edges.size();
   state.ensure_size(E);
   state.next_epoch();
   heap.ensure_size(E);
+  heap.clear();
   ++state.dijkstra_calls;
+  size_t call_nodes = 0;
 
-  std::unordered_map<EdgeIndex, Path> out;
+  // Reset output slots
+  for (size_t i = 0; i < K; ++i) {
+    out[i] = Path{};
+  }
 
-  if (goal_edges.empty()) return out;
+  if (K == 0) return;
 
-  std::vector<uint8_t> is_goal(E, 0);
+  // Epoch-stamped goal tracking: O(1) lookup, no per-call allocation
+  state.next_goal_epoch();
   size_t remaining = 0;
+  size_t unique_goals = 0;
 
-  for (EdgeIndex g : goal_edges) {
-    if (!is_goal[g]) {
-      is_goal[g] = 1;
+  for (size_t i = 0; i < K; ++i) {
+    EdgeIndex g = goal_edges[i];
+    if (!state.is_goal(g)) {
+      state.mark_goal(g);
       ++remaining;
-      out.emplace(g, Path{});
+      ++unique_goals;
     }
   }
 
-  if (is_goal[start_e]) {
-    Path P;
-    P.found = true;
-    P.total_cost = 0.0;
-    out[start_e] = std::move(P);
+  // Upper bound state
+  const bool use_bound = upper_bound_factor > 0.0;
+  const size_t min_found_for_bound =
+    use_bound ? static_cast<size_t>(std::max(1, static_cast<int>(unique_goals) / 2)) : 0;
+  size_t goals_found = 0;
+  double max_found_cost = 0.0;
+  double bound = std::numeric_limits<double>::infinity();
 
-    is_goal[start_e] = 0;
+  if (state.is_goal(start_e)) {
+    // Fill all output slots that match start_e
+    for (size_t i = 0; i < K; ++i) {
+      if (goal_edges[i] == start_e) {
+        out[i].found = true;
+        out[i].total_cost = 0.0;
+      }
+    }
+    state.clear_goal(start_e);
     --remaining;
-    if (remaining == 0) return out;
+    // Don't count cost-0 start toward bound (would make bound = 0)
+    if (remaining == 0) {
+      state.per_call_nodes.push_back(0);
+      return;
+    }
   }
 
   state.set_dist(start_e, 0.0, kNoEdge);
@@ -246,18 +293,34 @@ std::unordered_map<EdgeIndex, Path> shortest_edge_to_edges(
     if (state.is_settled(u)) continue;
     state.mark_settled(u);
     ++state.nodes_explored;
+    ++call_nodes;
 
     const double du = state.get_dist(u);
 
-    if (is_goal[u]) {
-      Path& slot = out[u];
-      if (!slot.found || du < slot.total_cost) {
-        slot = reconstruct_path(state.parent, u);
-        slot.total_cost = du;
-        slot.found = true;
+    // Upper bound check: stop if we've exceeded the bound
+    if (use_bound && du > bound) break;
+
+    if (state.is_goal(u)) {
+      Path p = reconstruct_path(state.parent, u);
+      p.total_cost = du;
+      p.found = true;
+      // Fill all output slots that match u
+      for (size_t i = 0; i < K; ++i) {
+        if (goal_edges[i] == u) {
+          out[i] = p;
+        }
       }
-      is_goal[u] = 0;
+      state.clear_goal(u);
       --remaining;
+
+      // Update adaptive bound
+      if (use_bound && du > 0.0) {
+        ++goals_found;
+        if (du > max_found_cost) max_found_cost = du;
+        if (goals_found >= min_found_for_bound) {
+          bound = max_found_cost * upper_bound_factor;
+        }
+      }
     }
 
     const auto& nbrs = G.neighbors(u);
@@ -267,12 +330,12 @@ std::unordered_map<EdgeIndex, Path> shortest_edge_to_edges(
 
       if (nd + eps < state.get_dist(v)) {
         state.set_dist(v, nd, u);
-        heap.push_or_decrease(v, nd);  // IMPORTANT: (v, key)
+        heap.push_or_decrease(v, nd);
       }
     }
   }
 
-  return out;
+  state.per_call_nodes.push_back(call_nodes);
 }
 
 } // namespace ROUTING

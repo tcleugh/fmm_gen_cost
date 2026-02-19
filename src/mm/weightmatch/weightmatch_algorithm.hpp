@@ -45,12 +45,13 @@ struct WEIGHTMATCHConfig {
    * @param backup_r_arg the expanded search radius if no candidates are found in the inital search, 
    * in map unit, which is the same as GPS data and network data.
    */
-  WEIGHTMATCHConfig(int k_arg = 8, double r_arg = 300, double gps_error_arg = 50, int backup_k_arg = -1, double backup_r_arg = -1);
+  WEIGHTMATCHConfig(int k_arg = 8, double r_arg = 300, double gps_error_arg = 50, int backup_k_arg = -1, double backup_r_arg = -1, double ub_factor_arg = 10.0);
   int k; /**< number of candidates */
   double radius; /**< search radius for candidates, unit is map_unit*/
   double gps_error; /**< GPS error, unit is map_unit */
   int backup_k;
   double backup_radius;
+  double upper_bound_factor; /**< Dijkstra upper bound: stop after max_found_cost * factor once enough goals found. 0 = disabled. */
   /**
    * Check the validity of the configuration
    */
@@ -119,12 +120,13 @@ protected:
    * @param eu_dist Euclidean distance between two observed point
    */
   void update_layer(
-    int level, 
-    TGLayer *la_ptr, 
-    TGLayer *lb_ptr, 
-    double eu_dist, 
-    DijkstraState& state, 
-    IndexedMinHeap& heap
+    int level,
+    TGLayer *la_ptr,
+    TGLayer *lb_ptr,
+    double eu_dist,
+    DijkstraState& state,
+    IndexedMinHeap& heap,
+    double upper_bound_factor
   );
   /**
    * Create a topologically connected path according to each matched

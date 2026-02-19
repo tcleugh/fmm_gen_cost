@@ -151,8 +151,9 @@ static void run_golden_check(
     const std::string &turn_ban_path,
     const std::string &trips_path,
     const std::string &golden_path,
-    const WEIGHTMATCHConfig &config) {
-  Network network(network_path, turn_ban_path);
+    const WEIGHTMATCHConfig &config,
+    const std::string &weight_name = "NO_WEIGHT") {
+  Network network(network_path, turn_ban_path, "id", "source", "target", weight_name);
   LinkGraph graph(network);
   WEIGHTMATCH model(network, graph);
 
@@ -181,23 +182,23 @@ TEST_CASE("weightmatch SA4=212 small real network", "[weightmatch][sa4_212]") {
   SECTION("basic without turn bans") {
     run_golden_check(
       base + "links.shp", "NO_TURN_BANS",
-      base + "trips_basic.csv", base + "expected_basic.csv", config);
+      base + "trips_basic.csv", base + "expected_basic.csv", config, "weight");
   }
 
   SECTION("edge cases without turn bans") {
     run_golden_check(
       base + "links.shp", "NO_TURN_BANS",
-      base + "trips_edge_cases.csv", base + "expected_edge_cases.csv", config);
+      base + "trips_edge_cases.csv", base + "expected_edge_cases.csv", config, "weight");
   }
 
   SECTION("basic with turn bans") {
     run_golden_check(
       base + "links.shp", base + "turn_bans.csv",
-      base + "trips_basic.csv", base + "expected_basic_tb.csv", config);
+      base + "trips_basic.csv", base + "expected_basic_tb.csv", config, "weight");
   }
 
   SECTION("consistency") {
-    Network network(base + "links.shp", "NO_TURN_BANS");
+    Network network(base + "links.shp", "NO_TURN_BANS", "id", "source", "target", "weight");
     LinkGraph graph(network);
     WEIGHTMATCH model(network, graph);
 
@@ -227,23 +228,23 @@ TEST_CASE("weightmatch SA4=17 medium real network", "[weightmatch][sa4_17]") {
   SECTION("basic without turn bans") {
     run_golden_check(
       base + "links.shp", "NO_TURN_BANS",
-      base + "trips_basic.csv", base + "expected_basic.csv", config);
+      base + "trips_basic.csv", base + "expected_basic.csv", config, "weight");
   }
 
   SECTION("edge cases without turn bans") {
     run_golden_check(
       base + "links.shp", "NO_TURN_BANS",
-      base + "trips_edge_cases.csv", base + "expected_edge_cases.csv", config);
+      base + "trips_edge_cases.csv", base + "expected_edge_cases.csv", config, "weight");
   }
 
   SECTION("basic with turn bans") {
     run_golden_check(
       base + "links.shp", base + "turn_bans.csv",
-      base + "trips_basic.csv", base + "expected_basic_tb.csv", config);
+      base + "trips_basic.csv", base + "expected_basic_tb.csv", config, "weight");
   }
 
   SECTION("consistency") {
-    Network network(base + "links.shp", "NO_TURN_BANS");
+    Network network(base + "links.shp", "NO_TURN_BANS", "id", "source", "target", "weight");
     LinkGraph graph(network);
     WEIGHTMATCH model(network, graph);
 
@@ -272,7 +273,7 @@ TEST_CASE("weightmatch SA4=212 stress (1000 trips)", "[weightmatch][sa4_212][str
 
   run_golden_check(
     base + "links.shp", "NO_TURN_BANS",
-    base + "trips_stress.csv", base + "expected_stress.csv", config);
+    base + "trips_stress.csv", base + "expected_stress.csv", config, "weight");
 }
 
 TEST_CASE("weightmatch SA4=17 stress (500 trips)", "[weightmatch][sa4_17][stress]") {
@@ -282,5 +283,5 @@ TEST_CASE("weightmatch SA4=17 stress (500 trips)", "[weightmatch][sa4_17][stress
 
   run_golden_check(
     base + "links.shp", "NO_TURN_BANS",
-    base + "trips_stress.csv", base + "expected_stress.csv", config);
+    base + "trips_stress.csv", base + "expected_stress.csv", config, "weight");
 }

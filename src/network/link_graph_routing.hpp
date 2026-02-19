@@ -92,9 +92,14 @@ struct DijkstraState {
   std::vector<uint32_t>  settled;
   uint32_t epoch = 1;
 
+  // Goal tracking (epoch-stamped to avoid per-call allocation)
+  std::vector<uint32_t>  goal_marker;
+  uint32_t goal_epoch = 0;
+
   // Instrumentation counters (accumulated across calls, caller resets)
   size_t dijkstra_calls = 0;
   size_t nodes_explored = 0;
+  std::vector<size_t> per_call_nodes;  // nodes explored per call, for distribution stats
 
   void ensure_size(size_t E);
 
@@ -106,6 +111,11 @@ struct DijkstraState {
   bool is_settled(EdgeIndex v) const;
   void mark_settled(EdgeIndex v);
 
+  bool is_goal(EdgeIndex v) const;
+  void mark_goal(EdgeIndex v);
+  void clear_goal(EdgeIndex v);
+  void next_goal_epoch();
+
   void next_epoch();
 };
 
@@ -115,12 +125,25 @@ struct DijkstraState {
 // ----------------------
 Path reconstruct_path(const std::vector<EdgeIndex>& parent, EdgeIndex end_e);
 
-std::unordered_map<EdgeIndex, Path> shortest_edge_to_edges(
+/**
+ * Dijkstra from start_e to all goal_edges.
+ * Results are written into out[i] corresponding to goal_edges[i].
+ * out must be pre-sized to goal_edges.size().
+ *
+ * upper_bound_factor: if > 0, after finding min_found_for_bound goals,
+ * sets an upper bound of max_found_cost * factor. Nodes beyond this
+ * bound are not explored; unfound goals get infinity.
+ * min_found_for_bound: how many goals must be found before activating
+ * the bound. Default: max(1, K/2).
+ */
+void shortest_edge_to_edges(
   const LinkGraph& G,
   DijkstraState& state,
   IndexedMinHeap& heap,
   EdgeIndex start_e,
-  const std::vector<EdgeIndex>& goal_edges
+  const std::vector<EdgeIndex>& goal_edges,
+  std::vector<Path>& out,
+  double upper_bound_factor = 0.0
 );
 
 } // namespace ROUTING

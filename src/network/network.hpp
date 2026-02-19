@@ -64,7 +64,7 @@ public:
           const std::string &id_name = "id",
           const std::string &source_name = "source",
           const std::string &target_name = "target",
-          const std::string &weight_name = "weight"
+          const std::string &weight_name = "NO_WEIGHT"
         );
   Network(const CONFIG::NetworkConfig &config):Network(
     config.file,config.turn_ban_file,config.id,config.source,config.target,config.weight){};
