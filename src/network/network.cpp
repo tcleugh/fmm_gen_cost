@@ -104,7 +104,7 @@ void Network::read_ogr_file(
   int source_idx = ogrFDefn->GetFieldIndex(source_name.c_str());
   int target_idx = ogrFDefn->GetFieldIndex(target_name.c_str());
   int weight_idx;
-  if (weight_name == "NO_WEIGHT") {
+  if (weight_name != "NO_WEIGHT") {
     weight_idx = ogrFDefn->GetFieldIndex(weight_name.c_str());
   } else {
     weight_idx = 99999;
@@ -151,7 +151,7 @@ void Network::read_ogr_file(
     NodeID source = ogrFeature->GetFieldAsInteger64(source_idx);
     NodeID target = ogrFeature->GetFieldAsInteger64(target_idx);
     double weight;
-    if (weight_name == "NO_WEIGHT") {
+    if (weight_name != "NO_WEIGHT") {
       weight = ogrFeature->GetFieldAsDouble(weight_idx);
     } else {
       weight = 1.0;
