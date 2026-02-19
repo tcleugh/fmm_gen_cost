@@ -133,23 +133,23 @@ void WEIGHTMATCHApp::run() {
   SPDLOG_INFO("Time takes {}", time_spent);
   double timing_total = total_timings.candidate_search + total_timings.update_tg
     + total_timings.backtrack + total_timings.build_cpath + total_timings.geometry;
-  SPDLOG_INFO("--- Phase timing breakdown (thread-seconds) ---");
-  SPDLOG_INFO("  candidate_search: {:.3f}s ({:.1f}%)", total_timings.candidate_search,
+  SPDLOG_DEBUG("--- Phase timing breakdown (thread-seconds) ---");
+  SPDLOG_DEBUG("  candidate_search: {:.3f}s ({:.1f}%)", total_timings.candidate_search,
     timing_total > 0 ? 100.0 * total_timings.candidate_search / timing_total : 0);
-  SPDLOG_INFO("  update_tg:        {:.3f}s ({:.1f}%)", total_timings.update_tg,
+  SPDLOG_DEBUG("  update_tg:        {:.3f}s ({:.1f}%)", total_timings.update_tg,
     timing_total > 0 ? 100.0 * total_timings.update_tg / timing_total : 0);
-  SPDLOG_INFO("  backtrack:        {:.3f}s ({:.1f}%)", total_timings.backtrack,
+  SPDLOG_DEBUG("  backtrack:        {:.3f}s ({:.1f}%)", total_timings.backtrack,
     timing_total > 0 ? 100.0 * total_timings.backtrack / timing_total : 0);
-  SPDLOG_INFO("  build_cpath:      {:.3f}s ({:.1f}%)", total_timings.build_cpath,
+  SPDLOG_DEBUG("  build_cpath:      {:.3f}s ({:.1f}%)", total_timings.build_cpath,
     timing_total > 0 ? 100.0 * total_timings.build_cpath / timing_total : 0);
-  SPDLOG_INFO("  geometry:         {:.3f}s ({:.1f}%)", total_timings.geometry,
+  SPDLOG_DEBUG("  geometry:         {:.3f}s ({:.1f}%)", total_timings.geometry,
     timing_total > 0 ? 100.0 * total_timings.geometry / timing_total : 0);
-  SPDLOG_INFO("  total:            {:.3f}s", timing_total);
-  SPDLOG_INFO("--- Dijkstra stats ---");
-  SPDLOG_INFO("  total calls:      {}", total_dijkstra_calls);
-  SPDLOG_INFO("  total nodes:      {}", total_nodes_explored);
+  SPDLOG_DEBUG("  total:            {:.3f}s", timing_total);
+  SPDLOG_DEBUG("--- Dijkstra stats ---");
+  SPDLOG_DEBUG("  total calls:      {}", total_dijkstra_calls);
+  SPDLOG_DEBUG("  total nodes:      {}", total_nodes_explored);
   if (total_dijkstra_calls > 0) {
-    SPDLOG_INFO("  mean nodes/call:  {:.1f}",
+    SPDLOG_DEBUG("  mean nodes/call:  {:.1f}",
       static_cast<double>(total_nodes_explored) / total_dijkstra_calls);
   }
   if (!all_per_call_nodes.empty()) {
@@ -159,11 +159,11 @@ void WEIGHTMATCHApp::run() {
       size_t idx = static_cast<size_t>(p * (n - 1));
       return all_per_call_nodes[idx];
     };
-    SPDLOG_INFO("  p50 nodes/call:   {}", pct(0.50));
-    SPDLOG_INFO("  p75 nodes/call:   {}", pct(0.75));
-    SPDLOG_INFO("  p90 nodes/call:   {}", pct(0.90));
-    SPDLOG_INFO("  p95 nodes/call:   {}", pct(0.95));
-    SPDLOG_INFO("  p99 nodes/call:   {}", pct(0.99));
-    SPDLOG_INFO("  max nodes/call:   {}", all_per_call_nodes.back());
+    SPDLOG_DEBUG("  p50 nodes/call:   {}", pct(0.50));
+    SPDLOG_DEBUG("  p75 nodes/call:   {}", pct(0.75));
+    SPDLOG_DEBUG("  p90 nodes/call:   {}", pct(0.90));
+    SPDLOG_DEBUG("  p95 nodes/call:   {}", pct(0.95));
+    SPDLOG_DEBUG("  p99 nodes/call:   {}", pct(0.99));
+    SPDLOG_DEBUG("  max nodes/call:   {}", all_per_call_nodes.back());
   }
 };
