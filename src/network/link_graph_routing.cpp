@@ -208,6 +208,7 @@ std::unordered_map<EdgeIndex, Path> shortest_edge_to_edges(
   state.ensure_size(E);
   state.next_epoch();
   heap.ensure_size(E);
+  ++state.dijkstra_calls;
 
   std::unordered_map<EdgeIndex, Path> out;
 
@@ -244,6 +245,7 @@ std::unordered_map<EdgeIndex, Path> shortest_edge_to_edges(
     const EdgeIndex u = heap.pop_min();
     if (state.is_settled(u)) continue;
     state.mark_settled(u);
+    ++state.nodes_explored;
 
     const double du = state.get_dist(u);
 

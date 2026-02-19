@@ -92,6 +92,10 @@ struct DijkstraState {
   std::vector<uint32_t>  settled;
   uint32_t epoch = 1;
 
+  // Instrumentation counters (accumulated across calls, caller resets)
+  size_t dijkstra_calls = 0;
+  size_t nodes_explored = 0;
+
   void ensure_size(size_t E);
 
   bool has_dist(EdgeIndex v) const;

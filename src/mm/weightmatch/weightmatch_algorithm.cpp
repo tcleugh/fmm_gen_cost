@@ -81,20 +81,27 @@ bool WEIGHTMATCHConfig::validate() const {
 
 // Procedure of HMM based map matching algorithm.
 MatchResult WEIGHTMATCH::match_traj(
-  const Trajectory &traj, 
-  const WEIGHTMATCHConfig &config, 
-  DijkstraState& state, 
-  IndexedMinHeap& heap
+  const Trajectory &traj,
+  const WEIGHTMATCHConfig &config,
+  DijkstraState& state,
+  IndexedMinHeap& heap,
+  MatchTimings *timings
 ) {
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
+
+  auto t0 = UTIL::get_current_time();
+
   Traj_Candidates tc = network_.search_tr_cs_knn_with_fallback(
-    traj.geom, 
-    config.k, 
-    config.radius, 
-    config.backup_k, 
+    traj.geom,
+    config.k,
+    config.radius,
+    config.backup_k,
     config.backup_radius
   );
+
+  auto t1 = UTIL::get_current_time();
+  if (timings) timings->candidate_search += UTIL::get_duration(t0, t1);
 
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
@@ -105,14 +112,20 @@ MatchResult WEIGHTMATCH::match_traj(
   SPDLOG_DEBUG("Update cost in transition graph");
   update_tg(&tg, traj, config, state, heap);
 
+  auto t2 = UTIL::get_current_time();
+  if (timings) timings->update_tg += UTIL::get_duration(t1, t2);
+
   SPDLOG_DEBUG("Optimal path inference");
   TGOpath tg_opath = tg.backtrack();
+
+  auto t3 = UTIL::get_current_time();
+  if (timings) timings->backtrack += UTIL::get_duration(t2, t3);
 
   SPDLOG_DEBUG("Optimal path size {}", tg_opath.size());
   MatchedCandidatePath matched_candidate_path(tg_opath.size());
 
   std::transform(
-    tg_opath.begin(), 
+    tg_opath.begin(),
     tg_opath.end(),
     matched_candidate_path.begin(),
     [](const TGNode *a) {
@@ -123,7 +136,7 @@ MatchResult WEIGHTMATCH::match_traj(
   );
   O_Path opath(tg_opath.size());
   std::transform(
-    tg_opath.begin(), 
+    tg_opath.begin(),
     tg_opath.end(),
     opath.begin(),
     [](const TGNode *a) {
@@ -133,11 +146,18 @@ MatchResult WEIGHTMATCH::match_traj(
 
   std::vector<int> indices;
   C_Path cpath = build_cpath(tg_opath, &indices, state, heap);
+
+  auto t4 = UTIL::get_current_time();
+  if (timings) timings->build_cpath += UTIL::get_duration(t3, t4);
+
   SPDLOG_DEBUG("Opath is {}", opath);
   SPDLOG_DEBUG("Indices is {}", indices);
   SPDLOG_DEBUG("Complete path is {}", cpath);
 
   LineString mgeom = network_.complete_path_to_geometry(traj.geom, cpath);
+
+  auto t5 = UTIL::get_current_time();
+  if (timings) timings->geometry += UTIL::get_duration(t4, t5);
 
   return MatchResult{traj.id, matched_candidate_path, opath, cpath, indices, mgeom};
 }

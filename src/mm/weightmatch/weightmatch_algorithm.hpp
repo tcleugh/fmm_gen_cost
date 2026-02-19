@@ -23,6 +23,14 @@ using namespace FMM::CORE;
 namespace FMM {
 namespace MM {
 
+struct MatchTimings {
+  double candidate_search = 0;
+  double update_tg = 0;
+  double backtrack = 0;
+  double build_cpath = 0;
+  double geometry = 0;
+};
+
 /**
  * Configuration of stmatch algorithm
  */
@@ -83,10 +91,11 @@ public:
    * @return map matching result
    */
   MatchResult match_traj(
-    const Trajectory &traj, 
-    const WEIGHTMATCHConfig &config, 
-    DijkstraState& state, 
-    IndexedMinHeap& heap
+    const Trajectory &traj,
+    const WEIGHTMATCHConfig &config,
+    DijkstraState& state,
+    IndexedMinHeap& heap,
+    MatchTimings *timings = nullptr
   );
 protected:
   /**
