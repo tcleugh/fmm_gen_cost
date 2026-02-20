@@ -201,4 +201,4 @@ endif()
 message(STATUS "Add python cmake information")
 
 add_subdirectory(python)
-# add_subdirectory(test EXCLUDE_FROM_ALL)
+add_subdirectory(test EXCLUDE_FROM_ALL)

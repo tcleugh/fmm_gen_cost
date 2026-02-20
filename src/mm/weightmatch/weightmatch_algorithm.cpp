@@ -16,13 +16,13 @@ using namespace FMM::MM;
 using namespace FMM::PYTHON;
 using namespace FMM::ROUTING;
 
-WEIGHTMATCHConfig::WEIGHTMATCHConfig(int k_arg, double r_arg, double gps_error_arg, int backup_k_arg, double backup_r_arg):
-  k(k_arg), radius(r_arg), gps_error(gps_error_arg), backup_k(backup_k_arg), backup_radius(backup_r_arg) {
+WEIGHTMATCHConfig::WEIGHTMATCHConfig(int k_arg, double r_arg, double gps_error_arg, int backup_k_arg, double backup_r_arg, double ub_factor_arg):
+  k(k_arg), radius(r_arg), gps_error(gps_error_arg), backup_k(backup_k_arg), backup_radius(backup_r_arg), upper_bound_factor(ub_factor_arg) {
 };
 
 void WEIGHTMATCHConfig::print() const {
   SPDLOG_INFO("WEIGHTMATCHAlgorithmConfig");
-  SPDLOG_INFO("k {} radius {} gps_error {} backup_k {} backup_radius {}", k, radius, gps_error, backup_k, backup_radius);
+  SPDLOG_INFO("k {} radius {} gps_error {} backup_k {} backup_radius {} upper_bound_factor {}", k, radius, gps_error, backup_k, backup_radius, upper_bound_factor);
 };
 
 WEIGHTMATCHConfig WEIGHTMATCHConfig::load_from_arg(
@@ -32,7 +32,8 @@ WEIGHTMATCHConfig WEIGHTMATCHConfig::load_from_arg(
   double gps_error = arg_data["error"].as<double>();
   int backup_k = arg_data["backup_candidates"].as<int>();
   double backup_radius = arg_data["backup_radius"].as<double>();
-  return WEIGHTMATCHConfig{k, radius, gps_error, backup_k, backup_radius};
+  double ub_factor = arg_data["upper_bound_factor"].as<double>();
+  return WEIGHTMATCHConfig{k, radius, gps_error, backup_k, backup_radius, ub_factor};
 };
 
 void WEIGHTMATCHConfig::register_arg(cxxopts::Options &options){
@@ -46,7 +47,9 @@ void WEIGHTMATCHConfig::register_arg(cxxopts::Options &options){
     ("backup_candidates","Number of candidates in fallback radius",
     cxxopts::value<int>()->default_value("-1"))
     ("backup_radius","Fallback search radius",
-    cxxopts::value<double>()->default_value("-1"));
+    cxxopts::value<double>()->default_value("-1"))
+    ("upper_bound_factor","Dijkstra upper bound factor (0 to disable)",
+    cxxopts::value<double>()->default_value("10.0"));
 }
 
 void WEIGHTMATCHConfig::register_help(std::ostringstream &oss){
@@ -57,7 +60,9 @@ void WEIGHTMATCHConfig::register_help(std::ostringstream &oss){
     "(network data unit) (50)\n";
   oss<<"--backup_candidates (optional) <int>: number of candidates to use in backup search (-1)\n";
   oss<<"--backup_radius (optional) <double>: search "
-    "radius to use if initial search fails (network data unit) (-1)\n";  
+    "radius to use if initial search fails (network data unit) (-1)\n";
+  oss<<"--upper_bound_factor (optional) <double>: Dijkstra upper bound factor, "
+    "0 to disable (10.0)\n";  
 };
 
 bool WEIGHTMATCHConfig::validate() const {
@@ -81,20 +86,27 @@ bool WEIGHTMATCHConfig::validate() const {
 
 // Procedure of HMM based map matching algorithm.
 MatchResult WEIGHTMATCH::match_traj(
-  const Trajectory &traj, 
-  const WEIGHTMATCHConfig &config, 
-  DijkstraState& state, 
-  IndexedMinHeap& heap
+  const Trajectory &traj,
+  const WEIGHTMATCHConfig &config,
+  DijkstraState& state,
+  IndexedMinHeap& heap,
+  MatchTimings *timings
 ) {
   SPDLOG_DEBUG("Count of points in trajectory {}", traj.geom.get_num_points());
   SPDLOG_DEBUG("Search candidates");
+
+  auto t0 = UTIL::get_current_time();
+
   Traj_Candidates tc = network_.search_tr_cs_knn_with_fallback(
-    traj.geom, 
-    config.k, 
-    config.radius, 
-    config.backup_k, 
+    traj.geom,
+    config.k,
+    config.radius,
+    config.backup_k,
     config.backup_radius
   );
+
+  auto t1 = UTIL::get_current_time();
+  if (timings) timings->candidate_search += UTIL::get_duration(t0, t1);
 
   SPDLOG_DEBUG("Trajectory candidate {}", tc);
   if (tc.empty()) return MatchResult{};
@@ -105,14 +117,20 @@ MatchResult WEIGHTMATCH::match_traj(
   SPDLOG_DEBUG("Update cost in transition graph");
   update_tg(&tg, traj, config, state, heap);
 
+  auto t2 = UTIL::get_current_time();
+  if (timings) timings->update_tg += UTIL::get_duration(t1, t2);
+
   SPDLOG_DEBUG("Optimal path inference");
   TGOpath tg_opath = tg.backtrack();
+
+  auto t3 = UTIL::get_current_time();
+  if (timings) timings->backtrack += UTIL::get_duration(t2, t3);
 
   SPDLOG_DEBUG("Optimal path size {}", tg_opath.size());
   MatchedCandidatePath matched_candidate_path(tg_opath.size());
 
   std::transform(
-    tg_opath.begin(), 
+    tg_opath.begin(),
     tg_opath.end(),
     matched_candidate_path.begin(),
     [](const TGNode *a) {
@@ -123,7 +141,7 @@ MatchResult WEIGHTMATCH::match_traj(
   );
   O_Path opath(tg_opath.size());
   std::transform(
-    tg_opath.begin(), 
+    tg_opath.begin(),
     tg_opath.end(),
     opath.begin(),
     [](const TGNode *a) {
@@ -133,11 +151,18 @@ MatchResult WEIGHTMATCH::match_traj(
 
   std::vector<int> indices;
   C_Path cpath = build_cpath(tg_opath, &indices, state, heap);
+
+  auto t4 = UTIL::get_current_time();
+  if (timings) timings->build_cpath += UTIL::get_duration(t3, t4);
+
   SPDLOG_DEBUG("Opath is {}", opath);
   SPDLOG_DEBUG("Indices is {}", indices);
   SPDLOG_DEBUG("Complete path is {}", cpath);
 
   LineString mgeom = network_.complete_path_to_geometry(traj.geom, cpath);
+
+  auto t5 = UTIL::get_current_time();
+  if (timings) timings->geometry += UTIL::get_duration(t4, t5);
 
   return MatchResult{traj.id, matched_candidate_path, opath, cpath, indices, mgeom};
 }
@@ -155,40 +180,49 @@ void WEIGHTMATCH::update_tg(
   int N = layers.size();
   for (int i = 0; i < N - 1; ++i) {
     // Routing from current_layer to next_layer
-    update_layer(i, &(layers[i]), &(layers[i + 1]), eu_dists[i], state, heap);
+    update_layer(i, &(layers[i]), &(layers[i + 1]), eu_dists[i], state, heap, config.upper_bound_factor);
   }
   SPDLOG_DEBUG("Update transition graph done");
 }
 
 void WEIGHTMATCH::update_layer(
-  int level, 
-  TGLayer *la_ptr, 
-  TGLayer *lb_ptr, 
-  double eu_dist, 
-  DijkstraState& state, 
-  IndexedMinHeap& heap
+  int level,
+  TGLayer *la_ptr,
+  TGLayer *lb_ptr,
+  double eu_dist,
+  DijkstraState& state,
+  IndexedMinHeap& heap,
+  double upper_bound_factor
 ) {
   SPDLOG_DEBUG("Update layer {} starts", level);
   TGLayer &lb = *lb_ptr;
+
+  // Opt 2: hoist targets vector out of source loop
+  std::vector<EdgeIndex> targets(lb.size());
+  std::transform(lb.begin(), lb.end(), targets.begin(),
+                 [](TGNode &a) {
+    return a.c->edge->index;
+  });
+
+  // Opt 5: reusable output buffer
+  std::vector<Path> paths(lb.size());
+
   for (auto iter_a = la_ptr->begin(); iter_a != la_ptr->end(); ++iter_a) {
     NodeIndex source = iter_a->c->edge->index;
-    std::vector<NodeIndex> targets(lb.size());
-    std::transform(lb.begin(), lb.end(), targets.begin(),
-                   [](TGNode &a) {
-      return a.c->edge->index;
-    });
 
-    std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
+    shortest_edge_to_edges(
         graph_,
         state,
         heap,
         source,
-        targets
+        targets,
+        paths,
+        upper_bound_factor
     );
 
     for (auto iter_b = lb_ptr->begin(); iter_b != lb_ptr->end(); ++iter_b) {
       int i = std::distance(lb_ptr->begin(), iter_b);
-      
+
       double path_distance;
       Edge* source_edge = iter_a->c->edge;
       Edge* target_edge = iter_b->c->edge;
@@ -196,8 +230,8 @@ void WEIGHTMATCH::update_layer(
         path_distance = eu_dist;
       } else {
         path_distance = (
-          source_edge->weight * (source_edge->length - iter_a->c->offset)// first_link_adjustment 
-          + paths.at(target_edge->index).total_cost 
+          source_edge->weight * (source_edge->length - iter_a->c->offset)// first_link_adjustment
+          + paths[i].total_cost
           + target_edge->weight * (iter_b->c->offset - target_edge->length) // last_link_adjustment
         );
       }
@@ -242,16 +276,17 @@ C_Path WEIGHTMATCH::build_cpath(
     Edge* source_edge = a->edge;
     Edge* target_edge = b->edge;
     if (source_edge->id != target_edge->id) {
-      std::vector<EdgeIndex> target;
-      target.push_back(b->edge->index);
-      std::unordered_map<EdgeIndex, Path> paths = shortest_edge_to_edges(
+      std::vector<EdgeIndex> target_vec(1, b->edge->index);
+      std::vector<Path> path_out(1);
+      shortest_edge_to_edges(
         graph_,
         state,
         heap,
         source_edge->index,
-        target
+        target_vec,
+        path_out
       );
-      std::vector<EdgeIndex> segs = paths.at(target_edge->index).edges;
+      std::vector<EdgeIndex> segs = path_out[0].edges;
 
       // No transition found
       if (segs.empty() && source_edge->target != target_edge->source) {

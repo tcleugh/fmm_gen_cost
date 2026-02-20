@@ -1,6 +1,8 @@
 
 #include "mm/weightmatch/weightmatch_app.hpp"
 
+#include <algorithm>
+
 using namespace FMM;
 using namespace FMM::CORE;
 using namespace FMM::NETWORK;
@@ -23,45 +25,67 @@ void WEIGHTMATCHApp::run() {
   SPDLOG_INFO("Progress report step {}", step_size);
   auto corrected_begin = UTIL::get_current_time();
 
+  MatchTimings total_timings;
+  size_t total_dijkstra_calls = 0;
+  size_t total_nodes_explored = 0;
+  std::vector<size_t> all_per_call_nodes;
+
   SPDLOG_INFO("Start to match trajectories");
   if (config_.use_omp){
     SPDLOG_INFO("Run map matching parallelly");
-  
+
     int buffer_trajectories_size = 100000;
     while (reader.has_next_trajectory()) {
-      std::vector<Trajectory> trajectories = 
+      std::vector<Trajectory> trajectories =
         reader.read_next_N_trajectories(buffer_trajectories_size);
       int trajectories_fetched = trajectories.size();
 
-      #pragma omp parallel 
+      #pragma omp parallel
       {
       DijkstraState state;
       IndexedMinHeap heap;
+      MatchTimings thread_timings;
 
       #pragma omp for schedule(guided, 1)
       for (int i = 0; i < trajectories_fetched; ++i) {
         Trajectory &trajectory = trajectories[i];
         int points_in_tr = trajectory.geom.get_num_points();
         MM::MatchResult result = mm_model.match_traj(
-            trajectory, 
+            trajectory,
             weightmatch_config,
             state,
-            heap
+            heap,
+            &thread_timings
           );
         writer.write_result(trajectory, result);
 
         #pragma omp critical
+        {
         if (!result.cpath.empty()) {
           points_matched += points_in_tr;
         }
         total_points += points_in_tr;
         ++progress;
+        }
 
         if (progress % step_size == 0) {
           std::stringstream buf;
           buf << "Progress " << progress << '\n';
           std::cout << buf.rdbuf();
         }
+      }
+
+      #pragma omp critical
+      {
+        total_timings.candidate_search += thread_timings.candidate_search;
+        total_timings.update_tg += thread_timings.update_tg;
+        total_timings.backtrack += thread_timings.backtrack;
+        total_timings.build_cpath += thread_timings.build_cpath;
+        total_timings.geometry += thread_timings.geometry;
+        total_dijkstra_calls += state.dijkstra_calls;
+        total_nodes_explored += state.nodes_explored;
+        all_per_call_nodes.insert(all_per_call_nodes.end(),
+          state.per_call_nodes.begin(), state.per_call_nodes.end());
       }
     }
   }
@@ -78,10 +102,11 @@ void WEIGHTMATCHApp::run() {
       int points_in_tr = trajectory.geom.get_num_points();
 
       MM::MatchResult result = mm_model.match_traj(
-        trajectory, 
-        weightmatch_config, 
-        state, 
-        heap
+        trajectory,
+        weightmatch_config,
+        state,
+        heap,
+        &total_timings
       );
       writer.write_result(trajectory,result);
 
@@ -91,6 +116,9 @@ void WEIGHTMATCHApp::run() {
       total_points += points_in_tr;
       ++progress;
     }
+    total_dijkstra_calls = state.dijkstra_calls;
+    total_nodes_explored = state.nodes_explored;
+    all_per_call_nodes = std::move(state.per_call_nodes);
   }
   SPDLOG_INFO("MM process finished");
   auto end_time = UTIL::get_current_time();
@@ -103,4 +131,39 @@ void WEIGHTMATCHApp::run() {
   SPDLOG_INFO("Point match speed: {}", points_matched / time_spent);
   SPDLOG_INFO("Point match speed (excluding input): {}", points_matched / time_spent_exclude_input);
   SPDLOG_INFO("Time takes {}", time_spent);
+  double timing_total = total_timings.candidate_search + total_timings.update_tg
+    + total_timings.backtrack + total_timings.build_cpath + total_timings.geometry;
+  SPDLOG_DEBUG("--- Phase timing breakdown (thread-seconds) ---");
+  SPDLOG_DEBUG("  candidate_search: {:.3f}s ({:.1f}%)", total_timings.candidate_search,
+    timing_total > 0 ? 100.0 * total_timings.candidate_search / timing_total : 0);
+  SPDLOG_DEBUG("  update_tg:        {:.3f}s ({:.1f}%)", total_timings.update_tg,
+    timing_total > 0 ? 100.0 * total_timings.update_tg / timing_total : 0);
+  SPDLOG_DEBUG("  backtrack:        {:.3f}s ({:.1f}%)", total_timings.backtrack,
+    timing_total > 0 ? 100.0 * total_timings.backtrack / timing_total : 0);
+  SPDLOG_DEBUG("  build_cpath:      {:.3f}s ({:.1f}%)", total_timings.build_cpath,
+    timing_total > 0 ? 100.0 * total_timings.build_cpath / timing_total : 0);
+  SPDLOG_DEBUG("  geometry:         {:.3f}s ({:.1f}%)", total_timings.geometry,
+    timing_total > 0 ? 100.0 * total_timings.geometry / timing_total : 0);
+  SPDLOG_DEBUG("  total:            {:.3f}s", timing_total);
+  SPDLOG_DEBUG("--- Dijkstra stats ---");
+  SPDLOG_DEBUG("  total calls:      {}", total_dijkstra_calls);
+  SPDLOG_DEBUG("  total nodes:      {}", total_nodes_explored);
+  if (total_dijkstra_calls > 0) {
+    SPDLOG_DEBUG("  mean nodes/call:  {:.1f}",
+      static_cast<double>(total_nodes_explored) / total_dijkstra_calls);
+  }
+  if (!all_per_call_nodes.empty()) {
+    std::sort(all_per_call_nodes.begin(), all_per_call_nodes.end());
+    size_t n = all_per_call_nodes.size();
+    auto pct = [&](double p) -> size_t {
+      size_t idx = static_cast<size_t>(p * (n - 1));
+      return all_per_call_nodes[idx];
+    };
+    SPDLOG_DEBUG("  p50 nodes/call:   {}", pct(0.50));
+    SPDLOG_DEBUG("  p75 nodes/call:   {}", pct(0.75));
+    SPDLOG_DEBUG("  p90 nodes/call:   {}", pct(0.90));
+    SPDLOG_DEBUG("  p95 nodes/call:   {}", pct(0.95));
+    SPDLOG_DEBUG("  p99 nodes/call:   {}", pct(0.99));
+    SPDLOG_DEBUG("  max nodes/call:   {}", all_per_call_nodes.back());
+  }
 };
