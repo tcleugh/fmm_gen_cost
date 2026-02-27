@@ -27,7 +27,7 @@ FMM provides Python and C++ APIs and can be used in the command line, in Jupyter
   - Road network in OpenStreetMap or ESRI shapefile.
   - GPS data in Point CSV, Trajectory CSV and Trajectory Shapefile ([more details](https://fmm-wiki.github.io/docs/documentation/input/#gps-data)).
 - **Detailed matching information**: traversed path, geometry, individual matched edges, GPS error, etc. More information at [here](https://fmm-wiki.github.io/docs/documentation/output/).
-- **Multiple algorithms**: [FMM](http://www.tandfonline.com/doi/full/10.1080/13658816.2017.1400548) (for small and middle scale networks) and [STMatch](https://dl.acm.org/doi/abs/10.1145/1653771.1653820) (for large scale road networks)
+- **Multiple algorithms**: [FMM](http://www.tandfonline.com/doi/full/10.1080/13658816.2017.1400548) (for small and middle scale networks), [STMatch](https://dl.acm.org/doi/abs/10.1145/1653771.1653820) (for large scale road networks), and **WeightMatch** (for networks with turn costs or generalized edge costs)
 - **Platform support**: Unix (ubuntu) , Mac and Windows(cygwin environment).
 - **Hexagon match**: :tada: Match to the uber's [h3](https://github.com/uber/h3) Hexagonal Hierarchical Geospatial Indexing System. Check the [demo](example/h3).
 
@@ -104,11 +104,74 @@ These instructions are for the Ubuntu platform. For installation on Windows and 
       - `ubodt_gen`: the Upper bounded origin destination table (UBODT) generator (precomputation) program
       - `fmm`: the program implementing the fast map matching algorithm
       - `stmatch`: the program implementing the STMATCH algorithm, no precomputation needed
+      - `weightmatch`: the program implementing the WeightMatch algorithm; routes on an edge-based link graph and supports turn costs and generalized cost functions
       
       It will also create a folder `python` under the build path, which contains fmm bindings(`fmm.py` and `_fmm.so`) that are installed into the Python site-packages location (e.g., `/usr/lib/python2.7/dist-packages`).
       
 3. **Verification of Installation**
-    - Run command line map matching
+    - Run command line map matching with **WeightMatch**
+
+      ```shell
+      weightmatch --network road_network.shp --gps trips.csv \
+        -k 8 -r 300 -e 50 --output mr.txt
+      ```
+
+      WeightMatch-specific options:
+
+      | Option | Default | Description |
+      |---|---|---|
+      | `--network` | required | Road network shapefile |
+      | `--turn_ban_file` | `NO_TURN_BANS` | CSV file of turn restrictions |
+      | `--weight` | `NO_WEIGHT` | Shapefile field name for edge cost (uses geometry length if omitted) |
+      | `-k/--candidates` | `8` | Number of candidate edges per GPS point |
+      | `-r/--radius` | `300` | Candidate search radius (map units) |
+      | `-e/--error` | `50` | GPS error (map units) |
+      | `--backup_candidates` | `-1` | Candidates for fallback search (disabled if -1) |
+      | `--backup_radius` | `-1` | Expanded radius for fallback search (must be > `--radius` if set) |
+      | `--upper_bound_factor` | `10.0` | Dijkstra pruning factor; `0` disables the upper bound |
+      | `--allow_truncation` | `false` | Drop unmatched GPS points at trip ends instead of failing |
+      | `--use_omp` | off | Enable OpenMP parallel matching |
+
+      Turn ban file format — CSV with columns `from_id` and `to_id` (edge IDs, no header required by the parser):
+
+      ```csv
+      from_id,to_id
+      1001,1002
+      2003,2004
+      ```
+
+      Example XML configuration for weightmatch:
+
+      ```xml
+      <?xml version="1.0" encoding="utf-8"?>
+      <config>
+        <input>
+          <network>
+            <file>road_network.shp</file>
+            <id>id</id>
+            <weight>travel_time</weight>
+            <turn_ban_file>turn_bans.csv</turn_ban_file>
+          </network>
+          <gps>
+            <file>trips.csv</file>
+            <id>id</id>
+            <geom>geom</geom>
+          </gps>
+        </input>
+        <parameters>
+          <k>8</k>
+          <r>300</r>
+          <gps_error>50</gps_error>
+          <upper_bound_factor>10.0</upper_bound_factor>
+          <allow_truncation>false</allow_truncation>
+        </parameters>
+        <output>
+          <file>mr.txt</file>
+        </output>
+      </config>
+      ```
+
+    - Run command line map matching with **FMM**
       Open a new terminal and type `fmm`. You should see the following output:
       
       ```shell

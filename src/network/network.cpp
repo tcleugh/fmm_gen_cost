@@ -337,7 +337,8 @@ Traj_Candidates Network::search_tr_cs_knn_with_fallback(
   std::size_t k,
   double radius,
   std::size_t backup_k,
-  double backup_radius
+  double backup_radius,
+  bool allow_truncation
 ) const {
   int NumberPoints = geom.get_num_points();
   Traj_Candidates tr_cs(NumberPoints);
@@ -352,18 +353,24 @@ Traj_Candidates Network::search_tr_cs_knn_with_fallback(
       if (backup_radius > radius) {
         is_backup = true;
         pcs = get_all_candidates(geom.get_x(i), geom.get_y(i), backup_radius);
-        if (pcs.empty()) {
+        if (pcs.empty() && !allow_truncation) {
           SPDLOG_DEBUG("Candidate not found in backup radius either, trip will not be matched");
           return Traj_Candidates();
         }
 
       } else {
-        return Traj_Candidates();
+        if (!allow_truncation) {
+          return Traj_Candidates();
+        }
       }
     }
     // KNN part
-    filter_candidates(pcs, tr_cs[i], is_backup ? backup_k : k, current_candidate_index);
-    current_candidate_index += tr_cs[i].size();
+    if (!pcs.empty()) {
+      filter_candidates(pcs, tr_cs[i], is_backup ? backup_k : k, current_candidate_index);
+      current_candidate_index += tr_cs[i].size();
+    } else {
+      tr_cs[i] = pcs;
+    }
   }
   return tr_cs;
 }

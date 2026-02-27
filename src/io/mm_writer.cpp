@@ -171,7 +171,7 @@ void CSVMatchResultWriter::write_result(
       int N = traj.timestamps.size();
       for (int i = 1; i < N; ++i) {
         double duration = traj.timestamps[i] - traj.timestamps[i-1];
-        buf << (duration>0?(result.opt_candidate_path[i].sp_dist/duration):0)
+        buf << (duration > 0 ? (result.opt_candidate_path[i].sp_dist / duration) : 0)
             << (i==N-1?"":",");
       }
     }
