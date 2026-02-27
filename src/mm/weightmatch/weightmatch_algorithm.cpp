@@ -16,13 +16,30 @@ using namespace FMM::MM;
 using namespace FMM::PYTHON;
 using namespace FMM::ROUTING;
 
-WEIGHTMATCHConfig::WEIGHTMATCHConfig(int k_arg, double r_arg, double gps_error_arg, int backup_k_arg, double backup_r_arg, double ub_factor_arg):
-  k(k_arg), radius(r_arg), gps_error(gps_error_arg), backup_k(backup_k_arg), backup_radius(backup_r_arg), upper_bound_factor(ub_factor_arg) {
-};
+WEIGHTMATCHConfig::WEIGHTMATCHConfig(
+  int k_arg, 
+  double r_arg, 
+  double gps_error_arg, 
+  int backup_k_arg, 
+  double backup_r_arg, 
+  double ub_factor_arg, 
+  bool allow_truncation_arg
+):
+  k(k_arg), 
+  radius(r_arg), 
+  gps_error(gps_error_arg), 
+  backup_k(backup_k_arg), 
+  backup_radius(backup_r_arg), 
+  upper_bound_factor(ub_factor_arg) , 
+  allow_truncation(allow_truncation_arg) 
+{};
 
 void WEIGHTMATCHConfig::print() const {
   SPDLOG_INFO("WEIGHTMATCHAlgorithmConfig");
-  SPDLOG_INFO("k {} radius {} gps_error {} backup_k {} backup_radius {} upper_bound_factor {}", k, radius, gps_error, backup_k, backup_radius, upper_bound_factor);
+  SPDLOG_INFO(
+    "k {} radius {} gps_error {} backup_k {} backup_radius {} upper_bound_factor {} allow_truncation {}", 
+    k, radius, gps_error, backup_k, backup_radius, upper_bound_factor, allow_truncation
+  );
 };
 
 WEIGHTMATCHConfig WEIGHTMATCHConfig::load_from_arg(
@@ -33,7 +50,8 @@ WEIGHTMATCHConfig WEIGHTMATCHConfig::load_from_arg(
   int backup_k = arg_data["backup_candidates"].as<int>();
   double backup_radius = arg_data["backup_radius"].as<double>();
   double ub_factor = arg_data["upper_bound_factor"].as<double>();
-  return WEIGHTMATCHConfig{k, radius, gps_error, backup_k, backup_radius, ub_factor};
+  bool allow_truncation = arg_data["allow_truncation"].as<bool>();
+  return WEIGHTMATCHConfig{k, radius, gps_error, backup_k, backup_radius, ub_factor, allow_truncation};
 };
 
 void WEIGHTMATCHConfig::register_arg(cxxopts::Options &options){
@@ -49,7 +67,9 @@ void WEIGHTMATCHConfig::register_arg(cxxopts::Options &options){
     ("backup_radius","Fallback search radius",
     cxxopts::value<double>()->default_value("-1"))
     ("upper_bound_factor","Dijkstra upper bound factor (0 to disable)",
-    cxxopts::value<double>()->default_value("10.0"));
+    cxxopts::value<double>()->default_value("10.0"))
+    ("allow_truncation","Allow trunction of ends of trips in search",
+    cxxopts::value<bool>()->default_value("false"));
 }
 
 void WEIGHTMATCHConfig::register_help(std::ostringstream &oss){
@@ -62,7 +82,8 @@ void WEIGHTMATCHConfig::register_help(std::ostringstream &oss){
   oss<<"--backup_radius (optional) <double>: search "
     "radius to use if initial search fails (network data unit) (-1)\n";
   oss<<"--upper_bound_factor (optional) <double>: Dijkstra upper bound factor, "
-    "0 to disable (10.0)\n";  
+    "0 to disable (10.0)\n";
+  oss<<"--allow_truncation (optional) <bool>: Allow trunction of ends of trips in search, (false)\n";    
 };
 
 bool WEIGHTMATCHConfig::validate() const {
@@ -97,19 +118,53 @@ MatchResult WEIGHTMATCH::match_traj(
 
   auto t0 = UTIL::get_current_time();
 
-  Traj_Candidates tc = network_.search_tr_cs_knn_with_fallback(
+  Traj_Candidates initial_tc = network_.search_tr_cs_knn_with_fallback(
     traj.geom,
     config.k,
     config.radius,
     config.backup_k,
-    config.backup_radius
+    config.backup_radius,
+    config.allow_truncation
   );
 
   auto t1 = UTIL::get_current_time();
   if (timings) timings->candidate_search += UTIL::get_duration(t0, t1);
 
-  SPDLOG_DEBUG("Trajectory candidate {}", tc);
-  if (tc.empty()) return MatchResult{};
+  SPDLOG_DEBUG("Trajectory candidate {}", initial_tc);
+
+  if (initial_tc.empty()) {
+    MatchResult mr = {};
+    mr.id = traj.id;
+    return mr;
+  }
+
+  int first_index = -1;
+  int last_index = -1;
+  int matchable_count = 0;
+  int N = initial_tc.size();
+  for (int i = 0; i < N; ++i) {
+    if (initial_tc[i].size() > 0) {
+      if (first_index == -1) {
+        first_index = i;
+      }
+      last_index = i;
+      matchable_count += 1;
+    }
+  }
+
+  bool matchable = (matchable_count >= 2 && last_index - first_index + 1 == matchable_count);
+  if (!matchable) {
+    MatchResult mr = {};
+    mr.id = traj.id;
+    return mr;
+  }
+
+  Traj_Candidates tc(matchable_count);
+  for (int i = 0; i < matchable_count; ++i) {
+    tc[i] = initial_tc[i + first_index];
+  }
+
+  SPDLOG_DEBUG("Matching {} of {} total points, from index {} to {}", matchable_count, N, first_index, last_index);
 
   SPDLOG_DEBUG("Generate transition graph");
   TransitionGraph tg(tc, config.gps_error);
@@ -164,7 +219,36 @@ MatchResult WEIGHTMATCH::match_traj(
   auto t5 = UTIL::get_current_time();
   if (timings) timings->geometry += UTIL::get_duration(t4, t5);
 
-  return MatchResult{traj.id, matched_candidate_path, opath, cpath, indices, mgeom};
+  if (first_index == 0 and last_index == N - 1) {
+    return MatchResult{traj.id, matched_candidate_path, opath, cpath, indices, mgeom};
+
+  } else {
+    MatchedCandidatePath updated_cands(N);
+    O_Path updated_opath(N);
+    std::vector<int> updated_indices(N);
+    for (int i = 0; i < N; ++i) {
+      if (i >= first_index && i <= last_index) {
+        int adjusted_index = i - first_index;
+        updated_cands[i] = matched_candidate_path[adjusted_index];
+        updated_opath[i] = opath[adjusted_index];
+        updated_indices[i] = indices[adjusted_index];
+        SPDLOG_TRACE("Updated Candidate edge {}", updated_cands[i].c.edge->id)
+
+      } else {
+        Candidate fake_cand = i < first_index ? matched_candidate_path[0].c : matched_candidate_path[matchable_count - 1].c;
+        fake_cand.dist = -1.0;
+        fake_cand.offset = -1.0;
+        updated_cands[i] = {fake_cand, -1.0, -1.0, -1.0};
+        updated_opath[i] = -1;
+        updated_indices[i] = -1;
+        SPDLOG_TRACE("Updated Candidate edge {}", updated_cands[i].c.edge->id)
+      } 
+    }
+
+    SPDLOG_DEBUG("Updated indices is {}", updated_indices);
+    SPDLOG_DEBUG("Updated Opath is {}", updated_opath);
+    return MatchResult{traj.id, updated_cands, updated_opath, cpath, updated_indices, mgeom};
+  }
 }
 
 void WEIGHTMATCH::update_tg(

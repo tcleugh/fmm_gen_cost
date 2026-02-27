@@ -156,6 +156,7 @@ public:
    * @param radius search radius
    * @param backup_k number of candidates to consider in fallback radius
    * @param backup_radius search radius to consider if no candidates in original radius
+   * @param allow_truncation return empty candidates where match fails if true
    * @return a 2D vector of Candidates containing
    * the candidates selected for each point in a linestring
    */
@@ -164,7 +165,8 @@ public:
     std::size_t k,
     double radius,
     std::size_t backup_k,
-    double backup_radius
+    double backup_radius,
+    bool allow_truncation
   ) const;
   /**
    * Get edge geometry

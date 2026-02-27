@@ -44,14 +44,24 @@ struct WEIGHTMATCHConfig {
    * @param backup_k_arg the number of candidates to use for backup search
    * @param backup_r_arg the expanded search radius if no candidates are found in the inital search, 
    * in map unit, which is the same as GPS data and network data.
+   * @param allow_truncation_arg true if ends of trip can be truncated if no candidates are founf
    */
-  WEIGHTMATCHConfig(int k_arg = 8, double r_arg = 300, double gps_error_arg = 50, int backup_k_arg = -1, double backup_r_arg = -1, double ub_factor_arg = 10.0);
+  WEIGHTMATCHConfig(
+      int k_arg = 8, 
+      double r_arg = 300, 
+      double gps_error_arg = 50, 
+      int backup_k_arg = -1, 
+      double backup_r_arg = -1, 
+      double ub_factor_arg = 10.0, 
+      bool allow_truncation_arg = false
+  );
   int k; /**< number of candidates */
   double radius; /**< search radius for candidates, unit is map_unit*/
   double gps_error; /**< GPS error, unit is map_unit */
   int backup_k;
   double backup_radius;
   double upper_bound_factor; /**< Dijkstra upper bound: stop after max_found_cost * factor once enough goals found. 0 = disabled. */
+  bool allow_truncation;
   /**
    * Check the validity of the configuration
    */
