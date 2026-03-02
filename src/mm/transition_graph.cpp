@@ -32,6 +32,7 @@ TransitionGraph::TransitionGraph(const Traj_Candidates &tc, double gps_error){
 }
 
 double TransitionGraph::calc_tp(double sp_dist,double eu_dist){
+  if (eu_dist == 0.0) eu_dist = 1e-6;
   return eu_dist>=sp_dist ? 1.0 : eu_dist/sp_dist;
 }
 
