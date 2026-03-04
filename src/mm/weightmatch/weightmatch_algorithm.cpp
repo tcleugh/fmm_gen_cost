@@ -207,6 +207,16 @@ MatchResult WEIGHTMATCH::match_traj(
   std::vector<int> indices;
   C_Path cpath = build_cpath(tg_opath, &indices, state, heap);
 
+  // build_cpath clears indices and returns empty when it encounters a
+  // disconnected edge in the optimal path.  The truncation-expansion code
+  // below would then access indices[0] / indices[adjusted_index] on an empty
+  // vector (UB / SIGSEGV), so bail out early with an empty result.
+  if (indices.empty()) {
+    MatchResult mr = {};
+    mr.id = traj.id;
+    return mr;
+  }
+
   auto t4 = UTIL::get_current_time();
   if (timings) timings->build_cpath += UTIL::get_duration(t3, t4);
 
@@ -240,7 +250,7 @@ MatchResult WEIGHTMATCH::match_traj(
         fake_cand.offset = -1.0;
         updated_cands[i] = {fake_cand, -1.0, -1.0, -1.0};
         updated_opath[i] = -1;
-        updated_indices[i] = -1;
+        updated_indices[i] = i < first_index ? indices[0] : indices[matchable_count - 1];
         SPDLOG_TRACE("Updated Candidate edge {}", updated_cands[i].c.edge->id)
       } 
     }
