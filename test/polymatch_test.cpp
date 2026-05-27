@@ -762,8 +762,16 @@ TEST_CASE("PolyLinkGraph builds vertices and through-cost tables (T042/T043)",
                    1e-6));
 
   PolyLinkGraph G(net, link_graph, poly, aps, /*through_penalty_factor=*/2.0);
-  // Vertex count = |E| + |P|
-  REQUIRE(G.n_vertices() == (size_t)net.get_edge_count() + poly.size());
+  // Vertex count = |E| + Sum_p n_p (Held-Karp polygon-AP expansion). In the
+  // fixture: 12 edges + (3 + 2 + 0) AP sub-vertices for polygons {7, 42, 200}
+  // = 17 vertices.
+  size_t expected_subs = 0;
+  for (PolygonIndex p = 0; p < poly.size(); ++p) {
+    expected_subs += aps.aps_for_polygon(p).size();
+  }
+  REQUIRE(G.n_sub_vertices() == expected_subs);
+  REQUIRE(G.n_vertices() ==
+          (size_t)net.get_edge_count() + expected_subs);
   REQUIRE(G.through_penalty_factor() == Approx(2.0));
 
   // Through-cost raw table for polygon 7 must equal weight * dist(AP_i, AP_j)
@@ -1513,6 +1521,82 @@ TEST_CASE("Two-polygons-via-shared-AP traversal (T052)",
       }
     }
   }
+}
+
+TEST_CASE("Polygon shortcut via Dijkstra: through-cost wired into PolyLinkGraph (T062/T053)",
+          "[polymatch][us1][routing]") {
+  // With the Held-Karp polygon-AP sub-vertex expansion, a vanilla Dijkstra
+  // over PolyLinkGraph should pick the polygon shortcut whenever it beats
+  // the link-only route. Verify this directly without going through the
+  // matcher's transition_cost layer.
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+
+  // Routing from edge 1 (1->2) to edge 4 (5->6).
+  //   Link-only: 1 -> 10 -> 4 (node 2 -> node 5). Cost = w(10) + w(4) = 2.0.
+  //   Polygon : 1 -> sub(7, AP@2) -> sub(7, AP@5) -> 4
+  //             = 0 + w_p * dist(AP@2=(1.0,1.2), AP@5=(0.8,0.8)) * factor
+  //             + w(4) ~= 2.0 * 0.447 * factor + 1.0.
+  //   At factor=0.1 polygon cost ~ 1.089 (wins); at factor=10 polygon cost ~
+  //   9.94 (loses).
+  EdgeIndex e1 = net.get_edge_index(1);
+  EdgeIndex e4 = net.get_edge_index(4);
+
+  PolygonIndex p7 = poly.id_to_index_or_throw(7);
+  AccessPointIndex ap2 = aps.node_id_to_index(2);
+  AccessPointIndex ap5 = aps.node_id_to_index(5);
+
+  PolyLinkGraph G_cheap(net, link_graph, poly, aps,
+                        /*through_penalty_factor=*/0.1);
+  double raw = G_cheap.through_cost_raw(p7, ap2, ap5);
+  REQUIRE(raw > 0);
+
+  std::vector<uint32_t> goals{static_cast<uint32_t>(e4)};
+  std::vector<Path> paths(1);
+  DijkstraState state; IndexedMinHeap heap;
+  shortest_polylink_to_polylinks(G_cheap, state, heap,
+                                 static_cast<uint32_t>(e1), goals, paths);
+  REQUIRE(paths[0].found);
+  bool path_visits_polygon = false;
+  for (auto v : paths[0].edges) {
+    if (G_cheap.vertex_kind(static_cast<uint32_t>(v)) ==
+        PolyVertexKind::PolygonSubVertex) {
+      path_visits_polygon = true;
+      break;
+    }
+  }
+  CHECK(path_visits_polygon);
+  CHECK(paths[0].total_cost == Approx(0.1 * raw + 1.0).margin(1e-6));
+
+  // With factor=10.0 the polygon shortcut should be more expensive than the
+  // link-only route, so Dijkstra picks the link route (no polygon sub-vertex
+  // in the reconstructed path).
+  PolyLinkGraph G_expensive(net, link_graph, poly, aps,
+                            /*through_penalty_factor=*/10.0);
+  std::vector<Path> paths2(1);
+  shortest_polylink_to_polylinks(G_expensive, state, heap,
+                                 static_cast<uint32_t>(e1), goals, paths2);
+  REQUIRE(paths2[0].found);
+  bool expensive_path_visits_polygon = false;
+  for (auto v : paths2[0].edges) {
+    if (G_expensive.vertex_kind(static_cast<uint32_t>(v)) ==
+        PolyVertexKind::PolygonSubVertex) {
+      expensive_path_visits_polygon = true;
+      break;
+    }
+  }
+  CHECK_FALSE(expensive_path_visits_polygon);
+  // Link-only cost = w(10) + w(4).
+  const auto &edges_vec = net.get_edges();
+  double link_cost = edges_vec[net.get_edge_index(10)].cost +
+                     edges_vec[net.get_edge_index(4)].cost;
+  CHECK(paths2[0].total_cost == Approx(link_cost).margin(1e-6));
 }
 
 TEST_CASE("Through-routing: when is_through==true both APs must be set (T053)",

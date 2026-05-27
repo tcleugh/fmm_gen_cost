@@ -281,10 +281,18 @@ double POLYMATCH::transition_cost(const PolyCandidate &a, const PolyCandidate &b
     if (se->id == te->id) {
       return eu_dist;
     }
-    std::vector<FMM::NETWORK::EdgeIndex> goals{te->index};
+    // Route over PolyLinkGraph (not the plain LinkGraph) so polygon shortcuts
+    // — same-AP-to-same-AP traversals priced at polygon.weight*dist*factor —
+    // are available to the search. For pairs where the polygon route is more
+    // expensive, Dijkstra falls back to the link-only path; for pairs where
+    // it isn't, US1 scenario 6 (through-routing with no GPS inside the
+    // polygon) is realized end-to-end without any AP-context bookkeeping in
+    // the inner loop.
+    std::vector<uint32_t> goals{static_cast<uint32_t>(te->index)};
     std::vector<Path> paths(1);
-    FMM::ROUTING::shortest_edge_to_edges(link_graph_, state, heap, se->index,
-                                         goals, paths, config.upper_bound_factor);
+    FMM::ROUTING::shortest_polylink_to_polylinks(
+        poly_graph_, state, heap, static_cast<uint32_t>(se->index), goals,
+        paths, config.upper_bound_factor);
     if (!paths[0].found) return std::numeric_limits<double>::infinity();
     return se->weight * (se->length - a.offset) + paths[0].total_cost +
            te->weight * (b.offset - te->length);
@@ -486,17 +494,65 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
         indices.push_back(current_idx);
         continue;
       }
-      // Expand the Dijkstra path between edges
-      std::vector<FMM::NETWORK::EdgeIndex> goals{b->edge->index};
+      // Expand the Dijkstra path between edges via the PolyLinkGraph so
+      // polygon sub-vertices on the optimal path are emitted as polygon
+      // segments (with is_through == true since no GPS observation matched
+      // inside them). Cf. US1 scenario 6.
+      std::vector<uint32_t> goals{static_cast<uint32_t>(b->edge->index)};
       std::vector<FMM::ROUTING::Path> paths(1);
-      FMM::ROUTING::shortest_edge_to_edges(link_graph_, state, heap,
-                                           a->edge->index, goals, paths);
+      FMM::ROUTING::shortest_polylink_to_polylinks(
+          poly_graph_, state, heap,
+          static_cast<uint32_t>(a->edge->index), goals, paths);
       const auto &segs = paths[0].edges;
       if (segs.size() > 2) {
+        // Walk middle vertices, emitting edges as link entries and runs of
+        // sub-vertices belonging to the same polygon as a single polygon
+        // segment.
+        bool in_polygon_run = false;
+        FMM::NETWORK::PolygonIndex run_poly = 0;
+        FMM::NETWORK::NodeID run_entry_ap = kNoAccessPoint;
         for (auto it = std::next(segs.begin()); it != std::prev(segs.end());
              ++it) {
-          push_link(network_.get_edges()[*it].id);
-          ++current_idx;
+          uint32_t v = static_cast<uint32_t>(*it);
+          if (poly_graph_.vertex_kind(v) ==
+              FMM::ROUTING::PolyVertexKind::PolygonSubVertex) {
+            FMM::NETWORK::PolygonIndex p_idx = poly_graph_.polygon_of(v);
+            FMM::NETWORK::AccessPointIndex ap_idx = poly_graph_.ap_of(v);
+            FMM::NETWORK::NodeID ap_node =
+                ap_layer_.access_points()[ap_idx].node_id;
+            if (!in_polygon_run) {
+              begin_segment(p_idx, cpath.size());
+              active.back().entry_ap = ap_node;
+              run_entry_ap = ap_node;
+              in_polygon_run = true;
+              run_poly = p_idx;
+              push_polygon(polygon_layer_.polygons()[p_idx].id);
+              ++current_idx;
+            } else if (p_idx != run_poly) {
+              // Hop to a different polygon via a shared AP. Close the
+              // previous run and start a new one. (The shared AP is the
+              // current ap_node — used as egress of the previous and
+              // entry of the next.)
+              if (!active.empty()) active.back().egress_ap = ap_node;
+              begin_segment(p_idx, cpath.size());
+              active.back().entry_ap = ap_node;
+              run_entry_ap = ap_node;
+              run_poly = p_idx;
+              push_polygon(polygon_layer_.polygons()[p_idx].id);
+              ++current_idx;
+            } else {
+              // Same-polygon sub-vertex transition (i.e., the through-cost
+              // arc P,a -> P,b). The egress AP of this run will be updated
+              // when we leave the polygon.
+            }
+            // Track current AP as the latest egress candidate for this run.
+            if (!active.empty()) active.back().egress_ap = ap_node;
+            (void)run_entry_ap;
+          } else {
+            in_polygon_run = false;
+            push_link(network_.get_edges()[v].id);
+            ++current_idx;
+          }
         }
       }
       push_link(b->edge->id);
