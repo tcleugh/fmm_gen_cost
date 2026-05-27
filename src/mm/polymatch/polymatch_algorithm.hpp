@@ -109,6 +109,22 @@ private:
                          ROUTING::IndexedMinHeap &heap) const;
 
  private:
+  // Min cost of routing between a single link edge and a polygon's matched
+  // point via any of the polygon's access points. Handles both directions:
+  // link_is_source=true routes link → polygon (single-source one-to-many
+  // Dijkstra to the AP's attached edges); link_is_source=false routes
+  // polygon → link (many-to-one — iterated as one Dijkstra per AP-attached
+  // edge, since the routing layer has no native many-to-one primitive).
+  // Used by the link→polygon and polygon→link branches of transition_cost.
+  double link_polygon_routing_cost(
+      FMM::NETWORK::Edge *link_edge,
+      double link_endpoint_adjustment,
+      FMM::NETWORK::PolygonIndex polygon_index,
+      const FMM::CORE::Point &polygon_endpoint,
+      bool link_is_source,
+      const POLYMATCHConfig &config,
+      ROUTING::DijkstraState &state,
+      ROUTING::IndexedMinHeap &heap) const;
 
   // Phase C: hybrid C_Path + PolygonSegments from the optimal opath.
   void build_hybrid_path(const PolyTGOpath &opath,

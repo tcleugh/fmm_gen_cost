@@ -214,8 +214,10 @@ PolyTrajCandidates POLYMATCH::build_candidates(
       FMM::CORE::Point gps(traj.geom.get_x(i), traj.geom.get_y(i));
 
       // Polygons containing this GPS point (inside / on boundary).
+      std::unordered_set<FMM::NETWORK::PolygonIndex> contained;
       for (auto p_idx : polygon_layer_.polygons_containing(gps)) {
         if (ap_layer_.aps_for_polygon(p_idx).empty()) continue;  // FR-014
+        contained.insert(p_idx);
         PolyCandidate pc;
         pc.kind = PolyCandidateKind::Polygon;
         pc.ep_distance = 0.0;
@@ -224,22 +226,14 @@ PolyTrajCandidates POLYMATCH::build_candidates(
         pc.inside = true;
         layer.push_back(pc);
       }
-      // Polygons within radius (outside but close); emission distance is min
-      // distance to boundary per FR-006.
+      // Polygons within radius (outside, close); emission distance is min
+      // distance to boundary per FR-006. Skip polygons already added as
+      // contained — avoids the boundary-distance call and a linear dedup
+      // against `layer`.
       for (auto p_idx : polygon_layer_.polygons_within_radius(gps, config.radius)) {
+        if (contained.count(p_idx)) continue;
         if (ap_layer_.aps_for_polygon(p_idx).empty()) continue;
         double d = polygon_layer_.min_boundary_distance(p_idx, gps);
-        if (d <= 0.0) continue;  // already added via polygons_containing
-        // De-dup against the contained set (defensive).
-        bool dup = false;
-        for (const auto &existing : layer) {
-          if (existing.kind == PolyCandidateKind::Polygon &&
-              existing.polygon_index == p_idx) {
-            dup = true;
-            break;
-          }
-        }
-        if (dup) continue;
         PolyCandidate pc;
         pc.kind = PolyCandidateKind::Polygon;
         pc.ep_distance = d;
@@ -257,6 +251,60 @@ PolyTrajCandidates POLYMATCH::build_candidates(
 }
 
 // ---------------- Transition cost ----------------
+
+double POLYMATCH::link_polygon_routing_cost(
+    FMM::NETWORK::Edge *link_edge,
+    double link_endpoint_adjustment,
+    FMM::NETWORK::PolygonIndex polygon_index,
+    const FMM::CORE::Point &polygon_endpoint,
+    bool link_is_source,
+    const POLYMATCHConfig &config,
+    ROUTING::DijkstraState &state,
+    ROUTING::IndexedMinHeap &heap) const {
+  using FMM::ROUTING::Path;
+  const auto &aps = ap_layer_.aps_for_polygon(polygon_index);
+  if (aps.empty()) return std::numeric_limits<double>::infinity();
+  double poly_w = polygon_layer_.polygons()[polygon_index].weight;
+  double best = std::numeric_limits<double>::infinity();
+
+  for (auto ap_idx : aps) {
+    const auto &ap = ap_layer_.access_points()[ap_idx];
+    if (!ap.attached_node.has_value() || ap.attached_edges.empty()) continue;
+    double polygon_side_cost =
+        poly_w * point_distance(ap.point, polygon_endpoint);
+
+    if (link_is_source) {
+      // Single source (link edge), many goals (AP-attached edges).
+      std::vector<FMM::NETWORK::EdgeIndex> goals(ap.attached_edges.begin(),
+                                                  ap.attached_edges.end());
+      std::vector<Path> paths(goals.size());
+      FMM::ROUTING::shortest_edge_to_edges(link_graph_, state, heap,
+                                           link_edge->index, goals, paths,
+                                           config.upper_bound_factor);
+      for (size_t i = 0; i < goals.size(); ++i) {
+        if (!paths[i].found) continue;
+        double cost = link_endpoint_adjustment + paths[i].total_cost +
+                      polygon_side_cost;
+        if (cost < best) best = cost;
+      }
+    } else {
+      // Many sources (AP-attached edges), single goal (link edge). The
+      // routing layer has no native many-to-one primitive, so iterate sources.
+      for (auto src_edge : ap.attached_edges) {
+        std::vector<FMM::NETWORK::EdgeIndex> goals{link_edge->index};
+        std::vector<Path> paths(1);
+        FMM::ROUTING::shortest_edge_to_edges(link_graph_, state, heap, src_edge,
+                                             goals, paths,
+                                             config.upper_bound_factor);
+        if (!paths[0].found) continue;
+        double cost = polygon_side_cost + paths[0].total_cost +
+                      link_endpoint_adjustment;
+        if (cost < best) best = cost;
+      }
+    }
+  }
+  return best;
+}
 
 double POLYMATCH::transition_cost(const PolyCandidate &a, const PolyCandidate &b,
                                   double eu_dist, const POLYMATCHConfig &config,
@@ -300,69 +348,22 @@ double POLYMATCH::transition_cost(const PolyCandidate &a, const PolyCandidate &b
 
   // Link → Polygon: best AP that's link-attached on the target polygon.
   if (a.is_link() && b.is_polygon()) {
-    const auto &aps = ap_layer_.aps_for_polygon(b.polygon_index);
-    if (aps.empty()) return std::numeric_limits<double>::infinity();
     Edge *se = a.edge;
-    double best = std::numeric_limits<double>::infinity();
-    double poly_w = polygon_layer_.polygons()[b.polygon_index].weight;
-    for (auto ap_idx : aps) {
-      const auto &ap = ap_layer_.access_points()[ap_idx];
-      if (!ap.attached_node.has_value() || ap.attached_edges.empty()) continue;
-      // Dijkstra from source edge to any of AP's incident edges.
-      std::vector<FMM::NETWORK::EdgeIndex> goals(ap.attached_edges.begin(),
-                                                  ap.attached_edges.end());
-      std::vector<Path> paths(goals.size());
-      FMM::ROUTING::shortest_edge_to_edges(link_graph_, state, heap, se->index,
-                                           goals, paths,
-                                           config.upper_bound_factor);
-      for (size_t i = 0; i < goals.size(); ++i) {
-        if (!paths[i].found) continue;
-        const Edge &te = network_.get_edge(goals[i]);
-        // Cost = source edge adjustment + Dijkstra + arrive at AP node (no
-        // target offset adjustment, since the AP is at a node). Then entry
-        // cost from AP into matched point inside polygon.
-        double cost = se->weight * (se->length - a.offset) + paths[i].total_cost;
-        // AP node is either source or target of te. Subtract any remaining
-        // edge length to arrive at the AP node specifically.
-        // Conservative: skip per-edge offset adjustment for the AP node; the
-        // path cost already places us at one endpoint of `te`. For our test
-        // fixtures with edge length 1.0 and AP at corner nodes, this is
-        // accurate enough; refinement can subtract te.weight * te.length when
-        // AP is at te.source.
-        double entry = poly_w * point_distance(ap.point, b.matched_point);
-        cost += entry;
-        if (cost < best) best = cost;
-      }
-    }
-    return best;
+    double link_adj = se->weight * (se->length - a.offset);
+    return link_polygon_routing_cost(se, link_adj, b.polygon_index,
+                                     b.matched_point,
+                                     /*link_is_source=*/true,
+                                     config, state, heap);
   }
 
-  // Polygon → Link: symmetric
+  // Polygon → Link: symmetric direction of the same routing problem.
   if (a.is_polygon() && b.is_link()) {
-    const auto &aps = ap_layer_.aps_for_polygon(a.polygon_index);
-    if (aps.empty()) return std::numeric_limits<double>::infinity();
     Edge *te = b.edge;
-    double best = std::numeric_limits<double>::infinity();
-    double poly_w = polygon_layer_.polygons()[a.polygon_index].weight;
-    for (auto ap_idx : aps) {
-      const auto &ap = ap_layer_.access_points()[ap_idx];
-      if (!ap.attached_node.has_value() || ap.attached_edges.empty()) continue;
-      // Cost from AP to target edge via LinkGraph. We pick the min over AP's
-      // incident edges as the start.
-      for (auto src_edge : ap.attached_edges) {
-        std::vector<FMM::NETWORK::EdgeIndex> goals{te->index};
-        std::vector<Path> paths(1);
-        FMM::ROUTING::shortest_edge_to_edges(link_graph_, state, heap, src_edge,
-                                             goals, paths,
-                                             config.upper_bound_factor);
-        if (!paths[0].found) continue;
-        double egress = poly_w * point_distance(a.matched_point, ap.point);
-        double cost = egress + paths[0].total_cost +
-                      te->weight * (b.offset - te->length);
-        if (cost < best) best = cost;
-      }
-    }
-    return best;
+    double link_adj = te->weight * (b.offset - te->length);
+    return link_polygon_routing_cost(te, link_adj, a.polygon_index,
+                                     a.matched_point,
+                                     /*link_is_source=*/false,
+                                     config, state, heap);
   }
 
   // Polygon → Polygon (different polygons): only via shared AP.
