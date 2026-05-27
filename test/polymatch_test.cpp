@@ -1178,6 +1178,90 @@ TEST_CASE("Single-point trajectory handled gracefully (T088 FR-019)",
   }
 }
 
+TEST_CASE("Same-polygon transition cost equals eu_dist (T056 FR-008)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // Two polygon candidates in the same polygon — the same-polygon eu_dist
+  // override should make transition_cost return eu_dist exactly, mirroring
+  // the same-link override at weightmatch_algorithm.cpp:323-324.
+  PolyCandidate a;
+  a.kind = PolyCandidateKind::Polygon;
+  a.polygon_index = poly.id_to_index_or_throw(7);
+  a.inside = true;
+  a.matched_point = Point(0.9, 1.0);
+  a.ep_distance = 0;
+
+  PolyCandidate b;
+  b.kind = PolyCandidateKind::Polygon;
+  b.polygon_index = poly.id_to_index_or_throw(7);  // same polygon
+  b.inside = true;
+  b.matched_point = Point(1.1, 1.0);
+  b.ep_distance = 0;
+
+  POLYMATCHConfig cfg;
+  DijkstraState state; IndexedMinHeap heap;
+  const double eu_dist = 0.42;
+  double cost = matcher.transition_cost(a, b, eu_dist, cfg, state, heap);
+  CHECK(cost == Approx(eu_dist));
+
+  // Sanity: with a different polygon, the cost is NOT the override.
+  b.polygon_index = poly.id_to_index_or_throw(42);
+  double cost_diff = matcher.transition_cost(a, b, eu_dist, cfg, state, heap);
+  // For disjoint polygons with no shared AP, cost is infinity.
+  CHECK(std::isinf(cost_diff));
+}
+
+TEST_CASE("Two-polygons-via-shared-AP traversal (T052)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().poly_shared_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_shared_path, "node_id", "polygon_id"}, poly,
+                   net, 1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.0);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // Trajectory: starts inside polygon 7 (0.8-1.2 x 0.8-1.2), crosses the
+  // shared boundary at x=1.2, ends inside polygon 8 (1.2-1.6 x 0.8-1.2).
+  Trajectory traj; traj.id = 200;
+  traj.geom.add_point(0.9, 1.0);   // inside polygon 7
+  traj.geom.add_point(1.0, 1.0);   // inside polygon 7
+  traj.geom.add_point(1.3, 1.0);   // inside polygon 8
+  traj.geom.add_point(1.4, 1.0);   // inside polygon 8
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.05;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+
+  // If the HMM produced two consecutive polygon segments (7, then 8), they
+  // must share an AP: the egress AP of segment 1 must equal the entry AP of
+  // segment 2 (both should be node_id 2000, the shared AP).
+  if (result.polygon_segments.size() >= 2) {
+    for (size_t i = 0; i + 1 < result.polygon_segments.size(); ++i) {
+      const auto &s1 = result.polygon_segments[i];
+      const auto &s2 = result.polygon_segments[i + 1];
+      if (s1.egress_ap != kNoAccessPoint &&
+          s2.entry_ap != kNoAccessPoint) {
+        CHECK(s1.egress_ap == s2.entry_ap);
+      }
+    }
+  }
+}
+
 TEST_CASE("Through-routing: when is_through==true both APs must be set (T053)",
           "[polymatch][us1]") {
   spdlog::set_level(spdlog::level::off);

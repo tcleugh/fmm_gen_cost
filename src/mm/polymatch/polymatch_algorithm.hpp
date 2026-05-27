@@ -98,12 +98,17 @@ private:
                     const POLYMATCHConfig &config, ROUTING::DijkstraState &state,
                     ROUTING::IndexedMinHeap &heap);
 
+ public:
   // Compute the transition cost from candidate a -> b for given Euclidean gap.
-  // Returns infinity if unreachable.
+  // Returns infinity if unreachable. Public for direct verification of the
+  // cost model in tests (the four-case rule of FR-008, R5; same-polygon
+  // eu_dist override).
   double transition_cost(const PolyCandidate &a, const PolyCandidate &b,
                          double eu_dist, const POLYMATCHConfig &config,
                          ROUTING::DijkstraState &state,
                          ROUTING::IndexedMinHeap &heap) const;
+
+ private:
 
   // Phase C: hybrid C_Path + PolygonSegments from the optimal opath.
   void build_hybrid_path(const PolyTGOpath &opath,
