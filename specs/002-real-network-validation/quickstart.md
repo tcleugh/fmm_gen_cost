@@ -70,15 +70,17 @@ All tests passed (NNN assertions in NN test cases)
 
 ## Reading the output on failure
 
-When an invariant fails, the harness prints a structured summary like this just before the Catch2 final-status line:
+When the suite runs, the harness prints a structured summary just before the Catch2 final-status line. Steady state post-`specs/003-polymatch-bugfixes` is all four invariants at 0 fail:
 
 ```text
-[real_network] Validation summary across 240 traces:
-  cpath-topology           : 240 pass /   0 fail
-  is-through-has-aps       : 240 pass /   0 fail
-  link-only-eq-weightmatch :  20 pass /   2 fail  (first failing trace IDs: 1003, 1017)
-  distance-inside-finite   : 240 pass /   0 fail
+[real_network] Validation summary across 200 traces:
+  cpath-topology            :  200 pass /    0 fail
+  is-through-has-aps        :  200 pass /    0 fail
+  link-only-eq-weightmatch  :   20 pass /    0 fail
+  distance-inside-finite    :  200 pass /    0 fail
 ```
+
+When an invariant fails the matching line shows the fail count and the first failing trace IDs inline, e.g. `link-only-eq-weightmatch :  20 pass /    2 fail  (first failing trace IDs: 1003, 1017)`.
 
 The first 10 failing trace IDs per invariant are listed inline. Re-run the suite with verbose output for one trace to see the specifics:
 

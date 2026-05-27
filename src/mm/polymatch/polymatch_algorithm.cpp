@@ -519,9 +519,11 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
   } else {
     begin_segment(first_c->polygon_index, cpath.size());
     push_polygon(polygon_layer_.polygons()[first_c->polygon_index].id);
-    if (first_c->inside) {
-      record_inside(first_c->matched_point, 0);
-    }
+    // specs/003-polymatch-bugfixes FR-001a: any polygon Viterbi candidate
+    // counts as an inside observation for is_through purposes — was
+    // previously gated on first_c->inside, which only fired for strict
+    // covered_by candidates and missed polygons-within-radius picks.
+    record_inside(first_c->matched_point, 0);
   }
   indices.push_back(current_idx);
 
@@ -647,9 +649,10 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
       set_entry(best_ap);
       push_polygon(polygon_layer_.polygons()[b->polygon_index].id);
       ++current_idx;
-      if (b->inside) {
-        record_inside(b->matched_point, (int)(i + 1));
-      }
+      // specs/003-polymatch-bugfixes FR-001a: was `if (b->inside)`; the
+      // matcher's polygon Viterbi pick counts as an inside observation
+      // even when the candidate came from polygons_within_radius (inside=false).
+      record_inside(b->matched_point, (int)(i + 1));
       indices.push_back(current_idx);
       continue;
     }
@@ -681,6 +684,14 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
         }
       }
       set_egress(best_ap);
+      // specs/003-polymatch-bugfixes FR-002: when the winning AP's attached
+      // edge IS b->edge, shortest_edge_to_edges returns found=true with
+      // edges=empty (start_e == goal early-return in link_graph_routing.cpp).
+      // We must still emit b->edge so cpath has an AP-incident edge between
+      // the polygon (already in cpath) and whatever the next iter emits.
+      if (best_ap != kNoAccessPoint && chosen_segs.empty()) {
+        chosen_segs.push_back(b->edge->index);
+      }
       // Emit intermediate edges from chosen AP path, including final edge.
       for (auto it = chosen_segs.begin(); it != chosen_segs.end(); ++it) {
         push_link(network_.get_edges()[*it].id);
@@ -693,9 +704,11 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
     // Polygon → Polygon
     if (a->is_polygon() && b->is_polygon()) {
       if (a->polygon_index == b->polygon_index) {
-        // Same polygon, another inside (or boundary) GPS observation.
+        // Same polygon, another polygon Viterbi candidate match.
+        // specs/003-polymatch-bugfixes FR-001a: was gated on b->inside;
+        // now fires on every polygon Viterbi match for is_through purposes.
         if (!active.empty() &&
-            active.back().p_idx == a->polygon_index && b->inside) {
+            active.back().p_idx == a->polygon_index) {
           record_inside(b->matched_point, (int)(i + 1));
         }
         indices.push_back(current_idx);
@@ -718,9 +731,8 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
       set_entry(shared_ap);
       push_polygon(polygon_layer_.polygons()[b->polygon_index].id);
       ++current_idx;
-      if (b->inside) {
-        record_inside(b->matched_point, (int)(i + 1));
-      }
+      // specs/003-polymatch-bugfixes FR-001a: was `if (b->inside)`.
+      record_inside(b->matched_point, (int)(i + 1));
       indices.push_back(current_idx);
       continue;
     }

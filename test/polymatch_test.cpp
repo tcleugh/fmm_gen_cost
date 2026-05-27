@@ -2353,42 +2353,22 @@ boost::optional<std::string> check_cpath_topology(
   return boost::none;
 }
 
-// FR-012: every PolygonSegment with is_through==true has both APs set —
-// EXCEPT at trajectory boundaries. A mid-polygon-start trip can produce a
-// first polygon segment with is_through==true (no GPS observation strictly
-// inside the polygon, but the trip began inside) and entry_ap==kNoAccessPoint
-// by design (FR-007 / R7 of spec 001). Mirror case for mid-polygon-end. The
-// strict "both APs set" requirement applies to *interior* polygon segments
-// only.
+// FR-012 (strict, post-003): every PolygonSegment with is_through==true MUST
+// have both APs populated. The first/last boundary exemption introduced in
+// feature 002 was a defensive workaround that masked a real matcher semantics
+// bug; specs/003-polymatch-bugfixes corrects the matcher (record_inside fires
+// on every polygon Viterbi candidate, not just inside=true ones) so this
+// invariant holds uniformly across all polygon segments.
 boost::optional<std::string> check_is_through_has_aps(const PolyMatchResult &pm) {
-  const auto &segs = pm.polygon_segments;
-  for (size_t i = 0; i < segs.size(); ++i) {
-    const auto &seg = segs[i];
+  for (const auto &seg : pm.polygon_segments) {
     if (!seg.is_through) continue;
-    bool is_first = (i == 0);
-    bool is_last = (i + 1 == segs.size());
-    bool entry_missing = (seg.entry_ap == kNoAccessPoint);
-    bool egress_missing = (seg.egress_ap == kNoAccessPoint);
-    if (!is_first && !is_last && (entry_missing || egress_missing)) {
+    if (seg.entry_ap == kNoAccessPoint || seg.egress_ap == kNoAccessPoint) {
       std::ostringstream os;
-      os << "interior polygon " << seg.polygon_id
+      os << "polygon " << seg.polygon_id
          << " is_through=true but entry_ap=" << seg.entry_ap
          << " egress_ap=" << seg.egress_ap;
       return os.str();
     }
-    if (is_first && !is_last && egress_missing) {
-      std::ostringstream os;
-      os << "first polygon " << seg.polygon_id
-         << " is_through=true egress_ap=kNoAccessPoint";
-      return os.str();
-    }
-    if (is_last && !is_first && entry_missing) {
-      std::ostringstream os;
-      os << "last polygon " << seg.polygon_id
-         << " is_through=true entry_ap=kNoAccessPoint";
-      return os.str();
-    }
-    // Single-segment trajectory: either AP may be absent.
   }
   return boost::none;
 }
@@ -2528,33 +2508,42 @@ TEST_CASE("cpath-topology invariant function (T025)",
 
 TEST_CASE("is-through-has-aps invariant function (T026)",
           "[real_network][us3]") {
-  // Interior is_through segment: both APs MUST be set; missing either fails.
+  // STRICT INVARIANT (post-003): every is_through==true polygon segment MUST
+  // have both APs populated. No boundary exemption.
+
+  // Interior is_through with missing entry_ap → FAIL.
   PolyMatchResult interior_bad;
-  // Three segments — middle has missing entry_ap.
   interior_bad.polygon_segments.push_back({1, 5, 6, true, 0.5, 0});
   interior_bad.polygon_segments.push_back({2, kNoAccessPoint, 7, true, 0.5, 1});
   interior_bad.polygon_segments.push_back({3, 7, 8, true, 0.5, 2});
   auto r1 = check_is_through_has_aps(interior_bad);
   REQUIRE(r1.has_value());
-  CHECK(r1->find("interior polygon 2") != std::string::npos);
 
-  // First-segment exemption: entry_ap absent is OK (mid-polygon-start).
+  // First-segment is_through with missing entry_ap → FAIL (post-003: matcher
+  // now sets is_through=false for mid-polygon-start; if a fix-regression ever
+  // re-introduces this shape, the invariant catches it).
   PolyMatchResult mps;
   mps.polygon_segments.push_back({7, kNoAccessPoint, 9, true, 1.0, 0});
   mps.polygon_segments.push_back({8, 9, 10, true, 0.5, 1});
-  CHECK_FALSE(check_is_through_has_aps(mps).has_value());
+  CHECK(check_is_through_has_aps(mps).has_value());
 
-  // Last-segment exemption: egress_ap absent is OK (mid-polygon-end).
+  // Last-segment is_through with missing egress_ap → FAIL.
   PolyMatchResult mpe;
   mpe.polygon_segments.push_back({7, 5, 9, true, 1.0, 0});
   mpe.polygon_segments.push_back({8, 9, kNoAccessPoint, true, 0.5, 1});
-  CHECK_FALSE(check_is_through_has_aps(mpe).has_value());
+  CHECK(check_is_through_has_aps(mpe).has_value());
 
-  // Single-segment trajectory: either AP may be absent (fully-inside).
+  // Single-segment is_through with both APs absent → FAIL.
   PolyMatchResult single;
   single.polygon_segments.push_back(
       {7, kNoAccessPoint, kNoAccessPoint, true, 0.0, 0});
-  CHECK_FALSE(check_is_through_has_aps(single).has_value());
+  CHECK(check_is_through_has_aps(single).has_value());
+
+  // is_through=false with either AP absent is always OK (mid-polygon-start /
+  // -end / fully-inside are valid when is_through=false).
+  PolyMatchResult mps_correct;
+  mps_correct.polygon_segments.push_back({7, kNoAccessPoint, 9, false, 1.0, 0});
+  CHECK_FALSE(check_is_through_has_aps(mps_correct).has_value());
 
   // Both APs set on a typical through-routing segment: always OK.
   PolyMatchResult ok;
@@ -2663,19 +2652,16 @@ TEST_CASE("Real-network validation against committed trace batch (US1-US3 T031)"
   auto it_t = ledger.per_invariant.find("is-through-has-aps");
   CHECK((it_t == ledger.per_invariant.end() || it_t->second.empty()));
 
-  // SC-005 (FR-011): cpath-topology — strict invariant. The current
-  // matcher exposes 2 edge-case failures in mid-polygon-start traces on
-  // the real fixture (polygons 28 + 172). They are recorded as a deferred
-  // matcher follow-up in specs/002-real-network-validation tasks.md +
-  // spec.md Deferred Follow-Ups. The harness is the source of truth for
-  // *finding* them — until those are fixed, allow up to 5 cpath-topology
-  // violations (well below 2% of the batch) so the suite is green on
-  // green-build expectations while still alerting if violations grow.
+  // SC-005 (FR-011): cpath-topology — strict invariant (post-003). The 002
+  // suite had to tolerate up to 5 failures because the matcher exposed two
+  // mid-polygon-start edge cases (polygons 28 + 172 on traces 1313 / 1314).
+  // specs/003-polymatch-bugfixes corrects the matcher; the tolerance is now
+  // gone — every trace MUST pass cpath-topology.
   auto it_c = ledger.per_invariant.find("cpath-topology");
   size_t cpath_fail = (it_c == ledger.per_invariant.end()) ? 0
                                                             : it_c->second.size();
   INFO("cpath-topology fail count: " << cpath_fail);
-  CHECK(cpath_fail <= 5);
+  CHECK(cpath_fail == 0);
 }
 
 // ============================================================

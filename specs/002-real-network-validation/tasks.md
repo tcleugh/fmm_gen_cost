@@ -209,11 +209,24 @@ Items the iteration uncovered but consciously deferred. See spec.md / data-model
 
 ### Discovered matcher bugs (would be follow-up work, not this feature's scope)
 
-1. **`cpath-topology` failures on 2 mid-polygon-start traces** (1313 → polygon 28; 1314 → polygon 172). The matcher's `build_hybrid_path` emits an edge immediately after the polygon whose endpoints are not in that polygon's AP set. Cause not fully diagnosed — most likely the matcher's polygon→link branch picks an AP whose chosen Dijkstra `chosen_segs[0]` end up disagreeing with the polygon's `aps_for_polygon` mapping under specific topology. Harness allows up to 5 such failures (current count: 2) so legitimate regressions still go red.
+1. **`cpath-topology` failures on 2 mid-polygon-start traces** (1313 → polygon 28; 1314 → polygon 172). RESOLVED in `specs/003-polymatch-bugfixes` (US1). Root cause: `shortest_edge_to_edges` returns `found=true` with `edges={}` when `start_e == goal`; the polymatch polygon→link branch picked the AP but emitted zero edges, leaving the polygon adjacent to a non-AP-incident edge from the next iter. Fix: in `build_hybrid_path`, when `best_ap` is set but `chosen_segs` is empty, push `b->edge->index` explicitly.
+2. **`is-through` semantics** (was masked by harness boundary exemption). RESOLVED in `specs/003-polymatch-bugfixes` (US0). Root cause: `record_inside` was gated on `PolyCandidate::inside`, which is false for `polygons_within_radius` picks. Fix: drop the `inside` gate at all three call sites in `build_hybrid_path` so every polygon Viterbi candidate counts as an inside observation. Harness's boundary exemption is removed; strict invariant restored.
 
 ### Performance follow-up
 
 - **Real-network suite wall time** (~1m29s for `./polymatch_test '[real_network]'`, ~68s for T031 alone). Slightly over SC-001's 60-second budget. The harness's per-trace cost is dominated by `POLYMATCH::match_traj` and `WEIGHTMATCH::match_traj` on a ~15 k-edge network with the polygon-aware sub-vertex expansion (~20 k vertices total in PolyLinkGraph after feature 001's Held-Karp refactor). Easy wins to investigate: reuse heap/state more aggressively, profile `transition_cost`'s polygon→polygon shared-AP iteration, or opt the `[real_network]` suite into OpenMP (FR-009 currently mandates single-core).
+
+- **One-shot perf profile** (specs/003-polymatch-bugfixes US2, recorded 2026-05-27 via scoped `chrono` timers in the main `[real_network]` `TEST_CASE`):
+
+  | Phase | Wall time |
+  |---|---|
+  | RealAreaFixture polygon/AP/poly_graph load (one-shot) | ~130 ms |
+  | `trips.csv` load + WKT parse | ~3.6 ms |
+  | Per-trace `POLYMATCH::match_traj` × 200 traces | **~66.5 s** (mean ~333 ms/trace) |
+  | Per-trace `WEIGHTMATCH::match_traj` × 20 link-only traces | ~276 ms (mean ~14 ms/trace) |
+  | Per-trace invariant-check predicates | ~0.6 ms total |
+
+  **Conclusion**: `POLYMATCH::match_traj` is the dominant contributor by two orders of magnitude over every other phase. No quick-win exists outside the matcher; closing the SC-001 60s gap requires matcher-internal optimization (heap/state reuse, transition-cost iteration, OpenMP) which is out of scope for 003 per Clarification Q1.
 
 ### Test-fidelity refinements
 
