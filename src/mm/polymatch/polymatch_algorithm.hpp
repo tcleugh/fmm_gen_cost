@@ -9,6 +9,8 @@
 #include "mm/transition_graph.hpp"
 #include "mm/mm_type.hpp"
 #include "mm/polymatch/poly_match_result.hpp"
+#include "mm/polymatch/poly_candidate.hpp"
+#include "mm/polymatch/poly_transition_graph.hpp"
 #include "mm/weightmatch/weightmatch_algorithm.hpp"
 #include "config/gps_config.hpp"
 #include "config/result_config.hpp"
@@ -64,6 +66,9 @@ public:
         poly_graph_(poly_graph),
         link_graph_(link_graph) {};
 
+  // Match a trajectory. In link_only_mode (or when polygon layer is empty),
+  // delegates to WEIGHTMATCH for binary-identical fallback per SC-002. Else
+  // runs the polygon-aware matcher.
   PolyMatchResult match_traj(
       const CORE::Trajectory &traj,
       const POLYMATCHConfig &config,
@@ -73,6 +78,39 @@ public:
       MatchTimings *timings = nullptr);
 
 private:
+  // Phase A: candidate generation.
+  PolyTrajCandidates build_candidates(
+      const CORE::Trajectory &traj,
+      const POLYMATCHConfig &config,
+      // owned by caller; we keep raw pointers into it from PolyCandidate.edge
+      MM::Traj_Candidates &link_candidates_owner) const;
+
+  // Phase B: HMM update across consecutive layers (writes cumu_prob/prev into
+  // each PolyTGNode in lb).
+  void update_tg(PolyTransitionGraph &tg, const CORE::Trajectory &traj,
+                 const POLYMATCHConfig &config,
+                 ROUTING::DijkstraState &state,
+                 ROUTING::IndexedMinHeap &heap);
+
+  void update_layer(int level, PolyTGLayer *la, PolyTGLayer *lb, double eu_dist,
+                    const POLYMATCHConfig &config, ROUTING::DijkstraState &state,
+                    ROUTING::IndexedMinHeap &heap);
+
+  // Compute the transition cost from candidate a -> b for given Euclidean gap.
+  // Returns infinity if unreachable.
+  double transition_cost(const PolyCandidate &a, const PolyCandidate &b,
+                         double eu_dist, const POLYMATCHConfig &config,
+                         ROUTING::DijkstraState &state,
+                         ROUTING::IndexedMinHeap &heap) const;
+
+  // Phase C: hybrid C_Path + PolygonSegments from the optimal opath.
+  void build_hybrid_path(const PolyTGOpath &opath,
+                         const CORE::Trajectory &traj,
+                         const POLYMATCHConfig &config,
+                         ROUTING::DijkstraState &state,
+                         ROUTING::IndexedMinHeap &heap,
+                         PolyMatchResult *out) const;
+
   const NETWORK::Network &network_;
   const NETWORK::PolygonLayer &polygon_layer_;
   const NETWORK::AccessPointLayer &ap_layer_;

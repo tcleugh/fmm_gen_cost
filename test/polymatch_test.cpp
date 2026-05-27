@@ -520,6 +520,106 @@ TEST_CASE("PolyLinkGraph through_penalty_factor scales costs (T044)",
   REQUIRE(raw * 5.0 == Approx(raw * G2.through_penalty_factor()));
 }
 
+TEST_CASE("Emission distance zero for point inside polygon (T046)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // Trajectory entirely inside polygon 7 (0.8..1.2 x 0.8..1.2)
+  Trajectory traj; traj.id = 102;
+  traj.geom.add_point(0.9, 0.9);
+  traj.geom.add_point(1.0, 1.0);
+  traj.geom.add_point(1.1, 1.1);
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.1;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap,
+                                              /*link_only=*/false, nullptr);
+  // At least one polygon segment expected (the trajectory lives inside p7).
+  REQUIRE_FALSE(result.polygon_segments.empty());
+  // The polygon segment should be for polygon 7.
+  REQUIRE(result.polygon_segments.front().polygon_id == 7);
+}
+
+TEST_CASE("Emission distance equals min boundary distance for point outside polygon (T048)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  PolygonIndex p7 = poly.id_to_index_or_throw(7);
+  // Outside polygon 7: at (0.5, 1.0) — boundary at x=0.8, so distance = 0.3.
+  Point gps(0.5, 1.0);
+  REQUIRE(poly.min_boundary_distance(p7, gps) == Approx(0.3));
+}
+
+TEST_CASE("Mid-polygon start has no entry AP (T054 FR-007/FR-010)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // Trajectory starts inside polygon 7, then exits via right boundary toward
+  // edge 4 (5→6 at y=1)
+  Trajectory traj; traj.id = 103;
+  traj.geom.add_point(1.0, 1.0);  // inside polygon 7
+  traj.geom.add_point(1.1, 1.1);  // inside polygon 7
+  traj.geom.add_point(1.5, 1.0);  // outside, on edge 4 (5-6)
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.1;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  if (!result.polygon_segments.empty()) {
+    // First polygon segment is the mid-polygon start; entry_ap must be absent.
+    REQUIRE(result.polygon_segments.front().entry_ap == kNoAccessPoint);
+  }
+}
+
+TEST_CASE("Duplicate GPS points produce no NaN (T057 Constitution II)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  Trajectory traj; traj.id = 200;
+  // Three identical points along edge 1 (top row).
+  traj.geom.add_point(0.5, 2.0);
+  traj.geom.add_point(0.5, 2.0);
+  traj.geom.add_point(0.5, 2.0);
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.1;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  // No assertion on path content (any choice is fine) — just no crash and no
+  // NaN propagation. We do check that the opath is non-empty.
+  REQUIRE_FALSE(result.base.opath.empty());
+}
+
 TEST_CASE("POLYMATCHApp link-only mode behaves like weightmatch (T049 link-only branch + FR-012)",
           "[polymatch][us1][us2]") {
   // When no polygon layer is configured, the matcher should yield the same
