@@ -24,10 +24,23 @@ using FMM::NETWORK::EdgeIndex;
 enum class PolyVertexKind { Edge, Polygon };
 
 /**
- * Polygon-aware routing graph. Vertices are EdgeIndex values [0, n_edges)
- * plus polygon vertices [n_edges, n_edges + n_polygons). Big-O of construction:
- *   O(|E| + Sum |AP.polygons| + Sum |AP.attached_links| + Sum_p n_p^2).
- * Query (shortest_polylink_to_polylinks): O((|E|+|P|) log (|E|+|P|)).
+ * Polygon-aware routing graph used by polymatch's Dijkstra core.
+ *
+ * Vertex ID space packs road-edge vertices [0, n_edges) and polygon vertices
+ * [n_edges, n_edges + n_polygons) into a single contiguous range so the
+ * existing IndexedMinHeap / DijkstraState (sized once to |E|+|P|) can be
+ * reused per Constitution Principle I.
+ *
+ * Construction cost (one-shot at startup):
+ *   O(|E|  + Sum |AP.polygons|  + Sum |AP.attached_links|  + Sum_p n_p^2)
+ *   `--link arcs           `--link<->polygon arcs    `--through-cost table (R11)
+ * The Sum_p n_p^2 term precomputes per-polygon `polygon.weight x dist(AP_i, AP_j)`
+ * for every ordered pair so that during Dijkstra the through-routing cost is
+ * one table lookup + one multiplication by THROUGH_PENALTY_FACTOR.
+ *
+ * Query cost (shortest_polylink_to_polylinks):
+ *   O((|E|+|P|) log (|E|+|P|))
+ * No per-query allocation: state and heap are reused across calls.
  */
 class PolyLinkGraph {
 public:
@@ -70,6 +83,17 @@ private:
       polygon_local_ap_index_;
 };
 
+/**
+ * Dijkstra over the PolyLinkGraph from `start_v` to all `goal_vs`.
+ *
+ * Reuses state + heap exactly like shortest_edge_to_edges, with state sized
+ * to |E|+|P| (see PolyLinkGraph's vertex-ID-space invariant). When the
+ * `upper_bound_factor` is positive, the search prunes nodes whose tentative
+ * distance exceeds `max_found_cost * upper_bound_factor` once at least half
+ * of the unique goals are settled.
+ *
+ * Complexity: O((|E|+|P|) log (|E|+|P|)). Per arc relaxation: O(1).
+ */
 void shortest_polylink_to_polylinks(
     const PolyLinkGraph &G,
     DijkstraState &state,

@@ -592,6 +592,167 @@ TEST_CASE("Mid-polygon start has no entry AP (T054 FR-007/FR-010)",
   }
 }
 
+TEST_CASE("Cross-polygon traversal records entry & egress APs (T050)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // GPS along the middle row crossing polygon 7 (0.8..1.2 x 0.8..1.2).
+  // Enters from the left (~node 4 at x=0), passes through inside, exits right.
+  Trajectory traj; traj.id = 101;
+  traj.geom.add_point(0.5, 1.0);  // outside-left, on edge 3
+  traj.geom.add_point(0.9, 1.0);  // inside polygon 7
+  traj.geom.add_point(1.1, 1.0);  // inside polygon 7
+  traj.geom.add_point(1.5, 1.0);  // outside-right, on edge 4
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.1;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  // The HMM may pick either link-only (across edge 3+4) or hybrid
+  // (edge 3 -> polygon 7 -> edge 4) — both are valid behaviors for this
+  // fixture depending on weights. We assert that *if* a polygon segment is
+  // emitted, both entry_ap and egress_ap are set (not kNoAccessPoint).
+  for (const auto &seg : result.polygon_segments) {
+    if (seg.polygon_id == 7) {
+      CHECK_FALSE(seg.is_through);  // matched inside GPS observations
+      CHECK(seg.entry_ap != kNoAccessPoint);
+      CHECK(seg.egress_ap != kNoAccessPoint);
+    }
+  }
+}
+
+TEST_CASE("Hybrid C_Path topology: polygons appear as negative IDs (T059)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  Trajectory traj; traj.id = 102;
+  traj.geom.add_point(0.9, 0.9);
+  traj.geom.add_point(1.0, 1.0);
+  traj.geom.add_point(1.1, 1.1);
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.1;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+
+  // For each PolygonSegment, the corresponding cpath entry must be -polygon_id.
+  for (const auto &seg : result.polygon_segments) {
+    REQUIRE(seg.position_in_cpath < result.base.cpath.size());
+    CHECK(result.base.cpath[seg.position_in_cpath] == -seg.polygon_id);
+  }
+}
+
+TEST_CASE("distance_inside is non-negative + finite (T058)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  Trajectory traj; traj.id = 103;
+  traj.geom.add_point(0.9, 0.9);
+  traj.geom.add_point(1.0, 1.0);
+  traj.geom.add_point(1.1, 1.1);
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.1;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  for (const auto &seg : result.polygon_segments) {
+    CHECK(std::isfinite(seg.distance_inside));
+    CHECK(seg.distance_inside >= 0.0);
+  }
+}
+
+TEST_CASE("polymatch link-only result equals weightmatch on same input (T080)",
+          "[polymatch][regression][sc-002]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer empty_poly;
+  AccessPointLayer empty_aps;
+  PolyLinkGraph poly_graph(net, link_graph, empty_poly, empty_aps, 1.5);
+  POLYMATCH polym(net, empty_poly, empty_aps, poly_graph, link_graph);
+  WEIGHTMATCH wm(net, link_graph);
+
+  Trajectory traj; traj.id = 100;
+  traj.geom.add_point(0.1, 2.0);
+  traj.geom.add_point(0.5, 2.0);
+  traj.geom.add_point(1.5, 2.0);
+  traj.geom.add_point(1.9, 2.0);
+
+  POLYMATCHConfig pcfg;
+  pcfg.k = 4; pcfg.radius = 0.5; pcfg.gps_error = 0.1;
+  WEIGHTMATCHConfig wcfg{pcfg.k, pcfg.radius, pcfg.gps_error,
+                         pcfg.backup_k, pcfg.backup_radius,
+                         pcfg.upper_bound_factor,
+                         pcfg.allow_truncation};
+
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult pm = polym.match_traj(traj, pcfg, state, heap,
+                                        /*link_only=*/true, nullptr);
+  MatchResult wmr = wm.match_traj(traj, wcfg, state, heap);
+
+  // opath + cpath are deterministic functions of the input; in link-only
+  // fallback they must match byte-for-byte (SC-002).
+  CHECK(pm.base.opath == wmr.opath);
+  CHECK(pm.base.cpath == wmr.cpath);
+}
+
+TEST_CASE("Single-point trajectory handled gracefully (T088 FR-019)",
+          "[polymatch][us1]") {
+  // The app-level skip is in POLYMATCHApp::run() (npts < 2). Here we verify
+  // that match_traj itself does not crash or return NaN if accidentally
+  // invoked on a single-point input.
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  Trajectory traj; traj.id = 999;
+  traj.geom.add_point(1.0, 1.0);  // single point inside polygon 7
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.1;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  // The result is allowed to be empty; we only require no crash and no
+  // NaN/inf in any returned field.
+  for (const auto &seg : result.polygon_segments) {
+    CHECK(std::isfinite(seg.distance_inside));
+  }
+}
+
 TEST_CASE("Duplicate GPS points produce no NaN (T057 Constitution II)",
           "[polymatch][us1]") {
   spdlog::set_level(spdlog::level::off);
