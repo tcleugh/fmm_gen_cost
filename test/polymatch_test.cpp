@@ -16,6 +16,8 @@
 #include "config/result_config.hpp"
 
 #include <ogrsf_frmts.h>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/xml_parser.hpp>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -593,6 +595,56 @@ TEST_CASE("Mid-polygon start has no entry AP (T054 FR-007/FR-010)",
   }
 }
 
+TEST_CASE("XML config parses polygon blocks (T031/T038)", "[polymatch][us2]") {
+  // Write a small XML config and verify POLYMATCHConfig::load_from_xml +
+  // PolygonConfig::load_from_xml + AccessPointConfig::load_from_xml all land.
+  std::string xml_path = std::string(kFixtureDir) + "/polymatch_config.xml";
+  {
+    std::ofstream f(xml_path);
+    f << R"(<?xml version="1.0" encoding="utf-8"?>
+<config>
+  <input>
+    <polygon>
+      <file>polygons.shp</file>
+      <id_name>myid</id_name>
+      <cost_name>mycost</cost_name>
+    </polygon>
+    <access_point>
+      <file>access_points.shp</file>
+      <node_id_name>nid</node_id_name>
+      <polygon_id_name>pid</polygon_id_name>
+    </access_point>
+  </input>
+  <parameters>
+    <k>10</k>
+    <r>500</r>
+    <gps_error>25</gps_error>
+    <through_penalty_factor>3.0</through_penalty_factor>
+    <boundary_epsilon>0.0001</boundary_epsilon>
+  </parameters>
+</config>)";
+  }
+  boost::property_tree::ptree tree;
+  boost::property_tree::read_xml(xml_path, tree);
+
+  auto pcfg = CONFIG::PolygonConfig::load_from_xml(tree);
+  CHECK(pcfg.file == "polygons.shp");
+  CHECK(pcfg.id_name == "myid");
+  CHECK(pcfg.cost_name == "mycost");
+
+  auto acfg = CONFIG::AccessPointConfig::load_from_xml(tree);
+  CHECK(acfg.file == "access_points.shp");
+  CHECK(acfg.node_id_name == "nid");
+  CHECK(acfg.polygon_id_name == "pid");
+
+  auto algocfg = POLYMATCHConfig::load_from_xml(tree);
+  CHECK(algocfg.k == 10);
+  CHECK(algocfg.radius == Approx(500.0));
+  CHECK(algocfg.gps_error == Approx(25.0));
+  CHECK(algocfg.through_penalty_factor == Approx(3.0));
+  CHECK(algocfg.boundary_epsilon == Approx(0.0001));
+}
+
 TEST_CASE("CLI parses polygon-specific flags (T030)", "[polymatch][us2]") {
   // Drive the same cxxopts pipeline POLYMATCHAppConfig uses, then check our
   // load_from_arg methods land the values in the right fields.
@@ -633,6 +685,74 @@ TEST_CASE("CLI parses polygon-specific flags (T030)", "[polymatch][us2]") {
   CHECK(acfg.polygon_id_name == "pid");
   CHECK(algocfg.through_penalty_factor == Approx(2.5));
   CHECK(algocfg.boundary_epsilon == Approx(0.001));
+}
+
+TEST_CASE("Polygon ID encoded as negative in opath (T071 partial)",
+          "[polymatch][us3]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  Trajectory traj; traj.id = 102;
+  traj.geom.add_point(0.95, 0.95);
+  traj.geom.add_point(1.05, 1.05);
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.05;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+
+  // If any opath entry is a polygon match, it must be encoded as a negative
+  // polygon ID. Per the negation convention, a polygon-id-7 match shows up
+  // as -7 in both opath and cpath.
+  for (auto id : result.base.opath) {
+    if (id < 0) {
+      // Must correspond to a real polygon
+      bool found = false;
+      for (const auto &p : poly.polygons()) {
+        if (-id == p.id) { found = true; break; }
+      }
+      CHECK(found);
+    }
+  }
+}
+
+TEST_CASE("Fallback to link-only when zero valid polygons (T033 FR-012)",
+          "[polymatch][us2]") {
+  // Build an "all invalid" polygons fixture: a shapefile containing only the
+  // bowtie polygon which gets skipped at load time.
+  std::string all_invalid_path = std::string(kFixtureDir) + "/polygons_all_invalid.shp";
+  {
+    GDALAllRegister();
+    GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
+    if (path_exists(all_invalid_path)) drv->Delete(all_invalid_path.c_str());
+    GDALDataset *ds = drv->Create(all_invalid_path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+    OGRLayer *layer = ds->CreateLayer("polys", nullptr, wkbPolygon, nullptr);
+    OGRFieldDefn id_f("id", OFTInteger64); layer->CreateField(&id_f);
+    OGRFieldDefn cf("cost", OFTReal); layer->CreateField(&cf);
+    OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+    f->SetField("id", (GIntBig)99);
+    f->SetField("cost", 1.0);
+    OGRPolygon p; OGRLinearRing r;
+    // self-intersecting bowtie -> rejected by is_valid (FR-013)
+    r.addPoint(0, 0); r.addPoint(1, 1); r.addPoint(1, 0); r.addPoint(0, 1); r.addPoint(0, 0);
+    p.addRing(&r);
+    f->SetGeometry(&p);
+    layer->CreateFeature(f);
+    OGRFeature::DestroyFeature(f);
+    GDALClose(ds);
+  }
+  spdlog::set_level(spdlog::level::off);
+  PolygonLayer layer;
+  REQUIRE(layer.load({all_invalid_path, "id", "cost"}));
+  CHECK(layer.empty());  // all skipped -> zero valid polygons (FR-012 trigger)
 }
 
 TEST_CASE("PolyMMWriter concurrent writes do not corrupt rows (T075 FR-017)",

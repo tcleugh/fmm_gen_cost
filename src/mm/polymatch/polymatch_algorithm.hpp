@@ -49,6 +49,8 @@ struct POLYMATCHConfig {
   bool validate() const;
   void print() const;
   static POLYMATCHConfig load_from_arg(const cxxopts::ParseResult &arg_data);
+  static POLYMATCHConfig load_from_xml(
+      const boost::property_tree::ptree &xml_data);
   static void register_arg(cxxopts::Options &options);
   static void register_help(std::ostringstream &oss);
 };

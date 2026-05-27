@@ -1,4 +1,8 @@
 #include "mm/polymatch/polymatch_app_config.hpp"
+
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/xml_parser.hpp>
+
 #include "util/debug.hpp"
 #include "util/util.hpp"
 
@@ -7,9 +11,36 @@ namespace MM {
 
 POLYMATCHAppConfig::POLYMATCHAppConfig(int argc, char **argv) {
   spdlog::set_pattern("[%^%l%$][%s:%-3#] %v");
-  load_arg(argc, argv);
+  // Mirror stmatch's auto-detect: a single XML argument means "load config
+  // from XML file" (per `polymatch <config.xml>`).
+  if (argc == 2) {
+    std::string maybe(argv[1]);
+    if (UTIL::check_file_extension(maybe, "xml,XML")) {
+      load_xml(maybe);
+    } else {
+      load_arg(argc, argv);
+    }
+  } else {
+    load_arg(argc, argv);
+  }
   spdlog::set_level((spdlog::level::level_enum) log_level);
   if (!help_specified) print();
+}
+
+void POLYMATCHAppConfig::load_xml(const std::string &file) {
+  SPDLOG_INFO("Start reading polymatch XML configuration {}", file);
+  boost::property_tree::ptree tree;
+  boost::property_tree::read_xml(file, tree);
+  network_config = CONFIG::NetworkConfig::load_from_xml(tree);
+  gps_config = CONFIG::GPSConfig::load_from_xml(tree);
+  result_config = CONFIG::ResultConfig::load_from_xml(tree);
+  polygon_config = CONFIG::PolygonConfig::load_from_xml(tree);
+  access_point_config = CONFIG::AccessPointConfig::load_from_xml(tree);
+  polymatch_config = POLYMATCHConfig::load_from_xml(tree);
+  log_level = tree.get("config.other.log_level", 2);
+  step = tree.get("config.other.step", 100);
+  use_omp = !(!tree.get_child_optional("config.other.use_omp"));
+  SPDLOG_INFO("Finish reading polymatch XML configuration");
 }
 
 void POLYMATCHAppConfig::load_arg(int argc, char **argv) {

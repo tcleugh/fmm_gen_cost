@@ -16,6 +16,7 @@ public:
   POLYMATCHAppConfig(int argc, char **argv);
 
   void load_arg(int argc, char **argv);
+  void load_xml(const std::string &file);
   static void print_help();
   void print() const;
   bool validate() const;

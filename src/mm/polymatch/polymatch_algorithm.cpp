@@ -55,6 +55,22 @@ POLYMATCHConfig POLYMATCHConfig::load_from_arg(
                          ub_factor, allow_truncation, tpf, eps};
 }
 
+POLYMATCHConfig POLYMATCHConfig::load_from_xml(
+    const boost::property_tree::ptree &xml_data) {
+  int k = xml_data.get("config.parameters.k", 8);
+  double radius = xml_data.get("config.parameters.r", 300.0);
+  double gps_error = xml_data.get("config.parameters.gps_error", 50.0);
+  int backup_k = xml_data.get("config.parameters.backup_candidates", -1);
+  double backup_radius = xml_data.get("config.parameters.backup_radius", -1.0);
+  double ub_factor = xml_data.get("config.parameters.upper_bound_factor", 10.0);
+  bool allow_truncation =
+      xml_data.get("config.parameters.allow_truncation", false);
+  double tpf = xml_data.get("config.parameters.through_penalty_factor", 1.5);
+  double eps = xml_data.get("config.parameters.boundary_epsilon", 1e-6);
+  return POLYMATCHConfig{k, radius, gps_error, backup_k, backup_radius,
+                         ub_factor, allow_truncation, tpf, eps};
+}
+
 void POLYMATCHConfig::register_arg(cxxopts::Options &options) {
   options.add_options()
     ("k,candidates", "Number of candidates",
