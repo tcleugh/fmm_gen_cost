@@ -18,6 +18,7 @@
 #include <ogrsf_frmts.h>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <atomic>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -866,6 +867,86 @@ TEST_CASE("XML config parses polygon blocks (T031/T038)", "[polymatch][us2]") {
   CHECK(algocfg.gps_error == Approx(25.0));
   CHECK(algocfg.through_penalty_factor == Approx(3.0));
   CHECK(algocfg.boundary_epsilon == Approx(0.0001));
+}
+
+TEST_CASE("Thread-determinism: same results single vs multi-threaded (T082 SC-009)",
+          "[polymatch][parallel]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // Build a batch of trajectories that mix link-only and polygon traversals.
+  std::vector<Trajectory> batch;
+  for (int i = 0; i < 16; ++i) {
+    Trajectory tr; tr.id = 1000 + i;
+    if (i % 2 == 0) {
+      // link-only along top row
+      tr.geom.add_point(0.1, 2.0);
+      tr.geom.add_point(0.5, 2.0);
+      tr.geom.add_point(1.5, 2.0);
+      tr.geom.add_point(1.9, 2.0);
+    } else {
+      // inside polygon 7
+      tr.geom.add_point(0.9, 0.9);
+      tr.geom.add_point(1.0, 1.0);
+      tr.geom.add_point(1.1, 1.1);
+    }
+    batch.push_back(tr);
+  }
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.05;
+
+  // Single-threaded reference run.
+  std::vector<PolyMatchResult> single(batch.size());
+  {
+    DijkstraState state; IndexedMinHeap heap;
+    for (size_t i = 0; i < batch.size(); ++i) {
+      single[i] = matcher.match_traj(batch[i], cfg, state, heap, false,
+                                     nullptr);
+    }
+  }
+
+  // Multi-threaded run: each thread owns its own DijkstraState + heap.
+  std::vector<PolyMatchResult> multi(batch.size());
+  constexpr int kThreads = 4;
+  std::vector<std::thread> threads;
+  std::atomic<int> next_idx{0};
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&]() {
+      DijkstraState state; IndexedMinHeap heap;
+      while (true) {
+        int i = next_idx.fetch_add(1);
+        if (i >= (int)batch.size()) return;
+        multi[i] = matcher.match_traj(batch[i], cfg, state, heap, false,
+                                      nullptr);
+      }
+    });
+  }
+  for (auto &th : threads) th.join();
+
+  // Results must be bit-identical per trajectory (SC-009).
+  for (size_t i = 0; i < batch.size(); ++i) {
+    CAPTURE(i, batch[i].id);
+    CHECK(single[i].base.opath == multi[i].base.opath);
+    CHECK(single[i].base.cpath == multi[i].base.cpath);
+    CHECK(single[i].polygon_segments.size() == multi[i].polygon_segments.size());
+    for (size_t s = 0; s < single[i].polygon_segments.size(); ++s) {
+      const auto &a = single[i].polygon_segments[s];
+      const auto &b = multi[i].polygon_segments[s];
+      CHECK(a.polygon_id == b.polygon_id);
+      CHECK(a.entry_ap == b.entry_ap);
+      CHECK(a.egress_ap == b.egress_ap);
+      CHECK(a.is_through == b.is_through);
+      CHECK(a.distance_inside == Approx(b.distance_inside));
+    }
+  }
 }
 
 TEST_CASE("CLI parses polygon-specific flags (T030)", "[polymatch][us2]") {
