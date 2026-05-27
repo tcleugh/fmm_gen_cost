@@ -263,3 +263,40 @@ T001 → T002 → T003 → T004 → T005 → T006 → (T007..T019 in parallel wh
 - **OpenMP parallelism is a v1 requirement** (FR-017); per-thread state created inside the parallel region, shared graph data treated as const, writer guarded by mutex.
 - **Through-routing cost precomputed once** at `PolyLinkGraph` construction (R11); `THROUGH_PENALTY_FACTOR` applied at lookup so factor sweeps don't require a rebuild.
 - Commit after each task or at story checkpoints. Don't skip the test-first ordering — Constitution Principle III is non-negotiable.
+
+---
+
+## Deferred Follow-Ups
+
+Items the current implementation leaves on the table. Some are single open tasks; the rest are inline `**Partial:**` / `**Pending:**` annotations on tasks marked `[X]` above. This section is the canonical list — when starting the next iteration, look here first.
+
+### Open task
+
+- **T045** — Dijkstra zero-allocation instrumentation (Constitution I). Needs malloc-hook / `mallinfo()` plumbing; the contract is currently inferred from T081's 0.14s wall-time and the doxygen Big-O notes at `src/network/poly_link_graph.hpp:35-49`.
+
+### Architectural follow-up: through-routing inside the Dijkstra inner loop
+
+Three deferrals all trace back to one missing piece — **AP-context tracking during polygon-vertex relaxation in `shortest_polylink_to_polylinks`**. Today the matcher applies entry/egress costs at the layer level instead.
+
+- **T062** — `shortest_polylink_to_polylinks` polygon→polygon arcs use the placeholder weight 0; the precomputed `through_cost_raw` table is built but never consulted during relaxation.
+- **T066** — `update_layer`/`transition_cost` handle link↔polygon and same-polygon explicitly; the polygon-shortcut path (where Dijkstra crosses a polygon as a routing detour) is unreachable.
+- **T053** — through-routing US1 scenario 6 has a defensive contract test only; full cost-formula verification needs T062/T066 in place.
+
+Sketch: extend `Arc` (or add a side table) to carry the AP each polygon arc is "via"; track `entry_ap_at(v)` in `DijkstraState`; during arc relaxation from a polygon vertex apply `through_cost_raw(p, entry_ap, exit_ap) * THROUGH_PENALTY_FACTOR`. Once wired, `transition_cost` for link↔link transitions can route through `shortest_polylink_to_polylinks` instead of plain `shortest_edge_to_edges` to pick up polygon shortcuts.
+
+### Output / contract refinements
+
+- **T078, T085** — `mgeom` is emitted empty for hybrid paths. Need to build a hybrid `LineString` from edge geometries (between polygon segments) and entry/inside/egress points (across each polygon segment) inside `build_hybrid_path` before `mgeom` is written.
+
+### Test fidelity refinements
+
+- **T058** — `distance_inside` only checked for finite/non-negative. Add hand-computed expected values for each of: traversal, through-routing, mid-polygon start, mid-polygon end, fully-inside.
+- **T059** — only the per-PolygonSegment cpath position is checked. Add full hybrid-topology assertions: every consecutive link-link pair in `cpath` shares a node; every link-polygon transition uses one of that polygon's APs; every polygon-polygon transition uses an AP listed under both polygons (FR-015).
+
+### Tooling
+
+- **T003 Python generator** depends on `geopandas`/`shapely`, which weren't installable in the sandbox. `polymatch_test` regenerates the same fixtures via GDAL/OGR at test setup so CI doesn't depend on the Python path. Keep the Python script as the offline reference.
+
+### Existing-test regressions (pre-existing, out of scope)
+
+- **T083** noted: `fmm_test`, `network_test`, and `network_graph_test` fail to compile against the current code. `Network(const char*)` was removed elsewhere and the Catch2 vector matcher template doesn't accept the new `EdgeID` (`long long`) type. Untouched by polymatch but blocks `make tests` from running cleanly end-to-end.
