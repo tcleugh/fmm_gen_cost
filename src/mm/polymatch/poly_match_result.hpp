@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/geometry.hpp"
 #include "mm/mm_type.hpp"
 #include "network/type.hpp"
 #include "network/polygon_layer.hpp"
@@ -20,6 +21,16 @@ struct PolygonSegment {
   bool is_through;
   double distance_inside;
   size_t position_in_cpath;
+
+  // Geometry of the polygon traversal — populated by build_hybrid_path so
+  // the matcher's mgeom builder can stitch together a continuous LineString
+  // across edge and polygon segments. entry_point / egress_point are valid
+  // when the corresponding *_ap field is not kNoAccessPoint. inside_points
+  // are the matched-point coordinates of GPS observations that fell inside
+  // this segment's polygon, in trajectory order.
+  FMM::CORE::Point entry_point;
+  FMM::CORE::Point egress_point;
+  std::vector<FMM::CORE::Point> inside_points;
 };
 
 struct PolyMatchResult {

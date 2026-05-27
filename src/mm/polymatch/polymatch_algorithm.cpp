@@ -442,7 +442,8 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
     cpath.push_back(-id);
   };
 
-  // Track active polygon segment for distance_inside accumulation.
+  // Track active polygon segment for distance_inside accumulation and for
+  // hybrid mgeom construction.
   struct ActiveSegment {
     FMM::NETWORK::PolygonIndex p_idx;
     FMM::NETWORK::PolygonID p_id;
@@ -454,9 +455,53 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
     double inside_path_sum = 0.0;  // Σ eu_dist between consecutive inside GPS
     int last_inside_layer = -1;
     size_t position_in_cpath = 0;
+
+    // Geometry book-keeping for build_hybrid_geometry.
+    FMM::CORE::Point entry_point;     // AP coords; only valid if entry_ap != kNoAccessPoint
+    FMM::CORE::Point egress_point;    // AP coords; only valid if egress_ap != kNoAccessPoint
+    std::vector<FMM::CORE::Point> inside_points;  // matched coords of inside-GPS candidates
   };
 
   std::vector<ActiveSegment> active;  // chronological order
+
+  // AP node_id -> AP point coords lookup (closure used everywhere we set an
+  // entry_ap/egress_ap).
+  auto ap_point_by_node_id = [&](FMM::NETWORK::NodeID node_id)
+      -> FMM::CORE::Point {
+    for (const auto &ap : ap_layer_.access_points()) {
+      if (ap.node_id == node_id) return ap.point;
+    }
+    return FMM::CORE::Point(0, 0);  // unreachable in well-formed inputs
+  };
+
+  auto set_entry = [&](FMM::NETWORK::NodeID node_id) {
+    if (active.empty()) return;
+    active.back().entry_ap = node_id;
+    if (node_id != kNoAccessPoint) {
+      active.back().entry_point = ap_point_by_node_id(node_id);
+    }
+  };
+  auto set_egress = [&](FMM::NETWORK::NodeID node_id) {
+    if (active.empty()) return;
+    active.back().egress_ap = node_id;
+    if (node_id != kNoAccessPoint) {
+      active.back().egress_point = ap_point_by_node_id(node_id);
+    }
+  };
+  auto record_inside = [&](const FMM::CORE::Point &p, int layer_idx) {
+    if (active.empty()) return;
+    auto &seg = active.back();
+    if (seg.has_inside_obs) {
+      seg.inside_path_sum += point_distance(seg.last_inside, p);
+      seg.last_inside = p;
+    } else {
+      seg.has_inside_obs = true;
+      seg.first_inside = p;
+      seg.last_inside = p;
+    }
+    seg.last_inside_layer = layer_idx;
+    seg.inside_points.push_back(p);
+  };
 
   auto begin_segment = [&](FMM::NETWORK::PolygonIndex p_idx, size_t pos) {
     const auto &poly = polygon_layer_.polygons()[p_idx];
@@ -475,10 +520,7 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
     begin_segment(first_c->polygon_index, cpath.size());
     push_polygon(polygon_layer_.polygons()[first_c->polygon_index].id);
     if (first_c->inside) {
-      active.back().has_inside_obs = true;
-      active.back().first_inside = first_c->matched_point;
-      active.back().last_inside = first_c->matched_point;
-      active.back().last_inside_layer = 0;
+      record_inside(first_c->matched_point, 0);
     }
   }
   indices.push_back(current_idx);
@@ -522,7 +564,7 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
                 ap_layer_.access_points()[ap_idx].node_id;
             if (!in_polygon_run) {
               begin_segment(p_idx, cpath.size());
-              active.back().entry_ap = ap_node;
+              set_entry(ap_node);
               run_entry_ap = ap_node;
               in_polygon_run = true;
               run_poly = p_idx;
@@ -533,9 +575,9 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
               // previous run and start a new one. (The shared AP is the
               // current ap_node — used as egress of the previous and
               // entry of the next.)
-              if (!active.empty()) active.back().egress_ap = ap_node;
+              set_egress(ap_node);
               begin_segment(p_idx, cpath.size());
-              active.back().entry_ap = ap_node;
+              set_entry(ap_node);
               run_entry_ap = ap_node;
               run_poly = p_idx;
               push_polygon(polygon_layer_.polygons()[p_idx].id);
@@ -546,7 +588,7 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
               // when we leave the polygon.
             }
             // Track current AP as the latest egress candidate for this run.
-            if (!active.empty()) active.back().egress_ap = ap_node;
+            set_egress(ap_node);
             (void)run_entry_ap;
           } else {
             in_polygon_run = false;
@@ -602,14 +644,11 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
       }
       // Begin polygon segment and emit polygon as a cpath element.
       begin_segment(b->polygon_index, cpath.size());
-      active.back().entry_ap = best_ap;
+      set_entry(best_ap);
       push_polygon(polygon_layer_.polygons()[b->polygon_index].id);
       ++current_idx;
       if (b->inside) {
-        active.back().has_inside_obs = true;
-        active.back().first_inside = b->matched_point;
-        active.back().last_inside = b->matched_point;
-        active.back().last_inside_layer = (int)(i + 1);
+        record_inside(b->matched_point, (int)(i + 1));
       }
       indices.push_back(current_idx);
       continue;
@@ -641,9 +680,7 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
           }
         }
       }
-      if (!active.empty()) {
-        active.back().egress_ap = best_ap;
-      }
+      set_egress(best_ap);
       // Emit intermediate edges from chosen AP path, including final edge.
       for (auto it = chosen_segs.begin(); it != chosen_segs.end(); ++it) {
         push_link(network_.get_edges()[*it].id);
@@ -658,21 +695,8 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
       if (a->polygon_index == b->polygon_index) {
         // Same polygon, another inside (or boundary) GPS observation.
         if (!active.empty() &&
-            active.back().p_idx == a->polygon_index) {
-          if (b->inside) {
-            auto &seg = active.back();
-            if (seg.has_inside_obs) {
-              seg.inside_path_sum += point_distance(seg.last_inside,
-                                                    b->matched_point);
-              seg.last_inside = b->matched_point;
-              seg.last_inside_layer = (int)(i + 1);
-            } else {
-              seg.has_inside_obs = true;
-              seg.first_inside = b->matched_point;
-              seg.last_inside = b->matched_point;
-              seg.last_inside_layer = (int)(i + 1);
-            }
-          }
+            active.back().p_idx == a->polygon_index && b->inside) {
+          record_inside(b->matched_point, (int)(i + 1));
         }
         indices.push_back(current_idx);
         continue;
@@ -689,23 +713,22 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
           break;
         }
       }
-      if (!active.empty()) active.back().egress_ap = shared_ap;
+      set_egress(shared_ap);
       begin_segment(b->polygon_index, cpath.size());
-      active.back().entry_ap = shared_ap;
+      set_entry(shared_ap);
       push_polygon(polygon_layer_.polygons()[b->polygon_index].id);
       ++current_idx;
       if (b->inside) {
-        active.back().has_inside_obs = true;
-        active.back().first_inside = b->matched_point;
-        active.back().last_inside = b->matched_point;
-        active.back().last_inside_layer = (int)(i + 1);
+        record_inside(b->matched_point, (int)(i + 1));
       }
       indices.push_back(current_idx);
       continue;
     }
   }
 
-  // Assemble PolygonSegments + distance_inside per R12
+  // Assemble PolygonSegments + distance_inside per R12. With entry_point /
+  // egress_point cached on each ActiveSegment, the distance computation no
+  // longer needs to re-scan ap_layer_ for AP coords.
   for (auto &seg : active) {
     PolygonSegment ps;
     ps.polygon_id = seg.p_id;
@@ -713,48 +736,26 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
     ps.egress_ap = seg.egress_ap;
     ps.position_in_cpath = seg.position_in_cpath;
     ps.is_through = !seg.has_inside_obs;
-    // distance_inside
+    ps.entry_point = seg.entry_point;
+    ps.egress_point = seg.egress_point;
+    ps.inside_points = std::move(seg.inside_points);
+
     double d = 0.0;
     if (seg.has_inside_obs) {
       if (seg.entry_ap != kNoAccessPoint) {
-        // distance from entry AP coords to first inside observation
-        // Find AP coords by node_id
-        auto it = ap_layer_.access_points();
-        for (const auto &ap : it) {
-          if (ap.node_id == seg.entry_ap) {
-            d += point_distance(ap.point, seg.first_inside);
-            break;
-          }
-        }
+        d += point_distance(seg.entry_point, seg.first_inside);
       }
       d += seg.inside_path_sum;
       if (seg.egress_ap != kNoAccessPoint) {
-        for (const auto &ap : ap_layer_.access_points()) {
-          if (ap.node_id == seg.egress_ap) {
-            d += point_distance(seg.last_inside, ap.point);
-            break;
-          }
-        }
+        d += point_distance(seg.last_inside, seg.egress_point);
       }
     } else if (seg.entry_ap != kNoAccessPoint &&
                seg.egress_ap != kNoAccessPoint) {
       // Through-routing: entry to egress straight-line distance.
-      FMM::CORE::Point ep(0, 0), gp(0, 0);
-      bool have_e = false, have_g = false;
-      for (const auto &ap : ap_layer_.access_points()) {
-        if (ap.node_id == seg.entry_ap) {
-          ep = ap.point;
-          have_e = true;
-        }
-        if (ap.node_id == seg.egress_ap) {
-          gp = ap.point;
-          have_g = true;
-        }
-      }
-      if (have_e && have_g) d = point_distance(ep, gp);
+      d = point_distance(seg.entry_point, seg.egress_point);
     }
     ps.distance_inside = d;
-    out->polygon_segments.push_back(ps);
+    out->polygon_segments.push_back(std::move(ps));
   }
 
   // Build opath (one entry per GPS point) — use the candidate's edge ID for
@@ -772,6 +773,73 @@ void POLYMATCH::build_hybrid_path(const PolyTGOpath &opath,
   out->base.opath = std::move(opath_out);
   out->base.cpath = std::move(cpath);
   out->base.indices = std::move(indices);
+}
+
+// ---------------- Hybrid geometry assembly ----------------
+
+void POLYMATCH::build_hybrid_geometry(PolyMatchResult *out) const {
+  using FMM::CORE::Point;
+  using FMM::CORE::LineString;
+
+  if (out->base.cpath.empty()) return;
+
+  LineString line;
+  // Track per-polygon-segment index for cpath positions carrying negated IDs.
+  // polygon_segments is in chronological order with position_in_cpath ascending,
+  // so we maintain a parallel cursor.
+  size_t seg_cursor = 0;
+
+  auto append_point = [&](const Point &p) {
+    int n = line.get_num_points();
+    if (n > 0) {
+      // Skip exact duplicates introduced by AP-edge endpoint coincidence.
+      double dx = line.get_x(n - 1) - boost::geometry::get<0>(p);
+      double dy = line.get_y(n - 1) - boost::geometry::get<1>(p);
+      if (dx * dx + dy * dy < 1e-18) return;
+    }
+    line.add_point(boost::geometry::get<0>(p),
+                   boost::geometry::get<1>(p));
+  };
+
+  auto append_linestring = [&](const LineString &ls) {
+    int n = ls.get_num_points();
+    for (int i = 0; i < n; ++i) {
+      append_point(Point(ls.get_x(i), ls.get_y(i)));
+    }
+  };
+
+  for (size_t pos = 0; pos < out->base.cpath.size(); ++pos) {
+    auto entry = out->base.cpath[pos];
+    if (entry >= 0) {
+      // Link edge: append its full geometry. v1 doesn't clip first/last by
+      // the matched offsets — a refinement deferred in tasks.md.
+      const LineString &geom = network_.get_edge_geom(entry);
+      append_linestring(geom);
+    } else {
+      // Polygon segment: append entry AP -> inside GPS points -> egress AP.
+      // Find the PolygonSegment for this cpath position.
+      while (seg_cursor < out->polygon_segments.size() &&
+             out->polygon_segments[seg_cursor].position_in_cpath < pos) {
+        ++seg_cursor;
+      }
+      if (seg_cursor < out->polygon_segments.size() &&
+          out->polygon_segments[seg_cursor].position_in_cpath == pos) {
+        const auto &seg = out->polygon_segments[seg_cursor];
+        if (seg.entry_ap != FMM::MM::kNoAccessPoint) {
+          append_point(seg.entry_point);
+        }
+        for (const auto &p : seg.inside_points) {
+          append_point(p);
+        }
+        if (seg.egress_ap != FMM::MM::kNoAccessPoint) {
+          append_point(seg.egress_point);
+        }
+        ++seg_cursor;
+      }
+    }
+  }
+
+  out->base.mgeom = std::move(line);
 }
 
 // ---------------- match_traj orchestrator ----------------
@@ -833,9 +901,13 @@ PolyMatchResult POLYMATCH::match_traj(const CORE::Trajectory &traj,
   auto t4 = UTIL::get_current_time();
   if (timings) timings->build_cpath += UTIL::get_duration(t3, t4);
 
-  // matched geometry (best-effort: only link portions for now)
-  // mgeom remains empty/default for hybrid paths; clients can derive it from
-  // opath + polygon_segments. Future refinement: build hybrid LineString.
+  // Phase D — hybrid mgeom: walks cpath and stitches edge geometries with
+  // polygon traversal points (entry AP -> inside GPS observations -> egress
+  // AP) into a single LineString.
+  build_hybrid_geometry(&result);
+
+  auto t5 = UTIL::get_current_time();
+  if (timings) timings->geometry += UTIL::get_duration(t4, t5);
 
   return result;
 }

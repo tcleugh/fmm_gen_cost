@@ -1346,6 +1346,61 @@ TEST_CASE("Hybrid C_Path topology: polygons appear as negative IDs (T059)",
   }
 }
 
+TEST_CASE("Hybrid mgeom stitches link + polygon geometries (T085 follow-up)",
+          "[polymatch][us1][mgeom]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // Link-only trajectory along the middle row (y=1.0) — mgeom should be the
+  // concatenated edge geometries for edges 3 (0,1)->(1,1) and 4 (1,1)->(2,1).
+  {
+    Trajectory traj; traj.id = 600;
+    traj.geom.add_point(0.5, 1.0);
+    traj.geom.add_point(0.9, 1.0);
+    traj.geom.add_point(1.1, 1.0);
+    traj.geom.add_point(1.5, 1.0);
+    POLYMATCHConfig cfg; cfg.k = 4; cfg.radius = 0.3; cfg.gps_error = 0.05;
+    DijkstraState state; IndexedMinHeap heap;
+    PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                                nullptr);
+    int n = result.base.mgeom.get_num_points();
+    REQUIRE(n >= 3);
+    // First and last points should be node endpoints: (0, 1) and (2, 1).
+    CHECK(result.base.mgeom.get_x(0) == Approx(0.0));
+    CHECK(result.base.mgeom.get_y(0) == Approx(1.0));
+    CHECK(result.base.mgeom.get_x(n - 1) == Approx(2.0));
+    CHECK(result.base.mgeom.get_y(n - 1) == Approx(1.0));
+  }
+
+  // Inside-polygon-7 trajectory — mgeom should consist of the three matched
+  // inside GPS coords.
+  {
+    Trajectory traj; traj.id = 601;
+    traj.geom.add_point(0.9, 0.9);
+    traj.geom.add_point(1.0, 1.0);
+    traj.geom.add_point(1.1, 1.1);
+    POLYMATCHConfig cfg; cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.05;
+    DijkstraState state; IndexedMinHeap heap;
+    PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                                nullptr);
+    if (!result.polygon_segments.empty()) {
+      int n = result.base.mgeom.get_num_points();
+      REQUIRE(n >= 1);
+      // First and last points should match first/last inside GPS observations.
+      CHECK(result.base.mgeom.get_x(0) == Approx(0.9));
+      CHECK(result.base.mgeom.get_x(n - 1) == Approx(1.1));
+    }
+  }
+}
+
 TEST_CASE("distance_inside is non-negative + finite (T058)",
           "[polymatch][us1]") {
   spdlog::set_level(spdlog::level::off);

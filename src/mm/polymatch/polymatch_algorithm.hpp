@@ -118,6 +118,12 @@ private:
                          ROUTING::IndexedMinHeap &heap,
                          PolyMatchResult *out) const;
 
+  // Phase D: build the hybrid matched geometry by walking cpath, emitting an
+  // edge's geometry for each positive entry and the polygon traversal
+  // (entry AP -> inside GPS points -> egress AP) for each negated polygon ID.
+  // No clipping of the first/last edge in v1 — that's a refinement.
+  void build_hybrid_geometry(PolyMatchResult *out) const;
+
   const NETWORK::Network &network_;
   const NETWORK::PolygonLayer &polygon_layer_;
   const NETWORK::AccessPointLayer &ap_layer_;
