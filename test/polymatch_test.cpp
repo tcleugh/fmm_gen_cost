@@ -276,6 +276,68 @@ void create_aps_contradictory(const std::string &path) {
   GDALClose(ds);
 }
 
+// Two adjacent polygons that share a boundary segment at x=1.2, plus an AP
+// shapefile in which node_id 2000 is listed for BOTH polygons (at the shared
+// boundary point (1.2, 1.0)). Used to exercise T023 (shared-node dedup) and
+// T028 (polygon-shared-only when node_id is not in the network).
+void create_polygons_with_shared_boundary(const std::string &path) {
+  GDALAllRegister();
+  GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
+  if (path_exists(path)) drv->Delete(path.c_str());
+  GDALDataset *ds = drv->Create(path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+  OGRLayer *layer = ds->CreateLayer("polys", nullptr, wkbPolygon, nullptr);
+  OGRFieldDefn id_f("id", OFTInteger64); layer->CreateField(&id_f);
+  OGRFieldDefn cf("cost", OFTReal); layer->CreateField(&cf);
+
+  auto add = [&](GIntBig id, double cost,
+                 std::vector<std::pair<double, double>> pts) {
+    OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+    f->SetField("id", id);
+    f->SetField("cost", cost);
+    OGRPolygon poly;
+    OGRLinearRing r;
+    for (auto &p : pts) r.addPoint(p.first, p.second);
+    r.addPoint(pts.front().first, pts.front().second);
+    poly.addRing(&r);
+    f->SetGeometry(&poly);
+    layer->CreateFeature(f);
+    OGRFeature::DestroyFeature(f);
+  };
+  // Two squares sharing the vertical segment x=1.2 between y=0.8 and y=1.2.
+  add(7, 1.0, {{0.8, 0.8}, {1.2, 0.8}, {1.2, 1.2}, {0.8, 1.2}});
+  add(8, 1.0, {{1.2, 0.8}, {1.6, 0.8}, {1.6, 1.2}, {1.2, 1.2}});
+  GDALClose(ds);
+}
+
+// AP shapefile pairing with the above: node 2000 is listed for both polygons
+// at the shared point (1.2, 1.0). Node 2000 is NOT in the network's node map,
+// so this AP is "polygon-shared-only" — covers T028.
+void create_aps_shared_only(const std::string &path) {
+  GDALAllRegister();
+  GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
+  if (path_exists(path)) drv->Delete(path.c_str());
+  GDALDataset *ds = drv->Create(path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+  OGRLayer *layer = ds->CreateLayer("aps", nullptr, wkbPoint, nullptr);
+  OGRFieldDefn nf("node_id", OFTInteger64); layer->CreateField(&nf);
+  OGRFieldDefn pf("polygon_id", OFTInteger64); layer->CreateField(&pf);
+  auto add = [&](GIntBig node, GIntBig poly, double x, double y) {
+    OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+    f->SetField("node_id", node);
+    f->SetField("polygon_id", poly);
+    OGRPoint pt(x, y);
+    f->SetGeometry(&pt);
+    layer->CreateFeature(f);
+    OGRFeature::DestroyFeature(f);
+  };
+  add(2000, 7, 1.2, 1.0);   // shared between polygons 7 and 8
+  add(2000, 8, 1.2, 1.0);   // same node_id, same point geometry
+  // give each polygon at least one link-attached AP so FR-014 doesn't warn
+  add(2, 7, 1.0, 1.2);       // network node 2 on polygon 7's boundary
+  add(3, 8, 1.6, 1.2);       // node 3 is at (2,2) — NOT on polygon 8 boundary,
+                              // so we use a different node.
+  GDALClose(ds);
+}
+
 class Fixture {
  public:
   std::string network_path;
@@ -286,6 +348,8 @@ class Fixture {
   std::string aps_off_boundary_path;
   std::string aps_orphan_path;
   std::string aps_contradictory_path;
+  std::string poly_shared_path;
+  std::string aps_shared_path;
 
   Fixture() {
     ensure_dir(kFixtureDir);
@@ -297,6 +361,8 @@ class Fixture {
     aps_off_boundary_path = std::string(kFixtureDir) + "/aps_off_boundary.shp";
     aps_orphan_path = std::string(kFixtureDir) + "/aps_orphan.shp";
     aps_contradictory_path = std::string(kFixtureDir) + "/aps_contradictory.shp";
+    poly_shared_path = std::string(kFixtureDir) + "/polygons_shared.shp";
+    aps_shared_path = std::string(kFixtureDir) + "/aps_shared.shp";
 
     create_network_shapefile(network_path);
     create_polygons_shapefile(polygons_path);
@@ -306,6 +372,8 @@ class Fixture {
     create_aps_off_boundary(aps_off_boundary_path);
     create_aps_orphan_polygon(aps_orphan_path);
     create_aps_contradictory(aps_contradictory_path);
+    create_polygons_with_shared_boundary(poly_shared_path);
+    create_aps_shared_only(aps_shared_path);
   }
 };
 
@@ -447,6 +515,47 @@ TEST_CASE("AccessPointLayer link attachment via node_id (T027)",
   const AccessPoint &ap5 = aps.access_points()[idx5];
   REQUIRE(ap5.attached_node.has_value());
   REQUIRE_FALSE(ap5.attached_edges.empty());  // multiple edges share node 5
+}
+
+TEST_CASE("AccessPointLayer dedups shared node across polygons (T023)",
+          "[polymatch][us2]") {
+  spdlog::set_level(spdlog::level::off);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().poly_shared_path, "id", "cost"}));
+  REQUIRE(poly.size() == 2);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_shared_path, "node_id", "polygon_id"}, poly,
+                   net, 1e-6));
+
+  // Three unique node IDs in fixture: 2 (polygon 7), 3 (polygon 8), 2000
+  // (shared between 7 and 8). 4 features but 3 deduplicated APs.
+  REQUIRE(aps.size() == 3);
+
+  // Find the shared AP (node_id 2000)
+  REQUIRE(aps.has_node_id(2000));
+  AccessPointIndex shared_idx = aps.node_id_to_index(2000);
+  const auto &shared = aps.access_points()[shared_idx];
+  CHECK(shared.polygons.size() == 2);
+}
+
+TEST_CASE("AccessPointLayer polygon-shared-only AP has no link attachment (T028)",
+          "[polymatch][us2]") {
+  spdlog::set_level(spdlog::level::off);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().poly_shared_path, "id", "cost"}));
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_shared_path, "node_id", "polygon_id"}, poly,
+                   net, 1e-6));
+
+  // node_id 2000 is not in the network (network has nodes 1..9). The AP is
+  // valid because it's shared between polygons 7 and 8 (polygons.size() >= 2).
+  AccessPointIndex idx = aps.node_id_to_index(2000);
+  const auto &ap = aps.access_points()[idx];
+  CHECK_FALSE(ap.attached_node.has_value());
+  CHECK(ap.polygons.size() >= 2);
+  CHECK(ap.attached_edges.empty());
 }
 
 TEST_CASE("AccessPointLayer warns on polygon with no AP (T029 FR-014)",
@@ -1066,6 +1175,42 @@ TEST_CASE("Single-point trajectory handled gracefully (T088 FR-019)",
   // NaN/inf in any returned field.
   for (const auto &seg : result.polygon_segments) {
     CHECK(std::isfinite(seg.distance_inside));
+  }
+}
+
+TEST_CASE("Through-routing: when is_through==true both APs must be set (T053)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  // Use a low through-penalty factor so polygon shortcut is more attractive.
+  PolyLinkGraph G(net, link_graph, poly, aps, 0.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // GPS far enough from polygon 7 that no observation is inside but radius
+  // still picks the polygon up as a candidate.
+  Trajectory traj; traj.id = 105;
+  traj.geom.add_point(0.3, 1.0);  // outside polygon 7
+  traj.geom.add_point(1.7, 1.0);  // outside polygon 7
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 1.5; cfg.gps_error = 0.5;
+  cfg.through_penalty_factor = 0.5;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  // Defensive contract: if any polygon segment is marked is_through, both
+  // APs must be set. (For US1 scenario 5, full through-routing requires
+  // Dijkstra-level AP-context tracking — see deferred note in tasks.md.)
+  for (const auto &seg : result.polygon_segments) {
+    if (seg.is_through) {
+      CHECK(seg.entry_ap != kNoAccessPoint);
+      CHECK(seg.egress_ap != kNoAccessPoint);
+    }
   }
 }
 
