@@ -73,6 +73,16 @@ All algorithms follow the same pattern: build candidate points via R-tree KNN se
 
 SWIG-based bindings defined in `python/fmm.i`, built as `fmm.py` + `_fmm.so`. The Python API uses POD types from `src/python/pyfmm.hpp` to avoid exposing internal C++ objects.
 
+### Path convention
+
+Never hardcode an absolute path like `/workspace/...` into source, scripts, or
+tests — the project root is mounted on the sandbox at `/workspace`, but it sits
+at a different location outside the sandbox. Use repo-relative paths
+(preferred) or have CMake inject the absolute path via
+`target_compile_definitions` for binaries that need to address fixtures
+regardless of cwd (`polymatch_test`'s `POLYMATCH_FIXTURE_DIR` is the canonical
+example).
+
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan at

@@ -59,6 +59,8 @@ add_executable(polymatch_test polymatch_test.cpp
         $<TARGET_OBJECTS:POLYMATCH_OBJ>)
 target_link_libraries(polymatch_test ${GDAL_LIBRARIES} ${Boost_LIBRARIES}
         ${OpenMP_CXX_LIBRARIES} ${OSMIUM_LIBRARIES})
+target_compile_definitions(polymatch_test PRIVATE
+        POLYMATCH_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/data/polymatch")
 
 add_custom_target(tests
 	DEPENDS algorithm_test network_test network_graph_test fmm_test weightmatch_test polymatch_test)
