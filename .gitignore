@@ -90,6 +90,9 @@ _deps
 # bash file to sync file
 sync.sh
 
+# Claude Code local settings (host-specific, do not commit)
+.claude/settings.local.json
+
 
 # Jupyternotebook
 .ipynb_checkpoints

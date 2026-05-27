@@ -10732,7 +10732,11 @@ namespace Catch {
 
     // 32kb for the alternate stack seems to be sufficient. However, this value
     // is experimentally determined, so that's not guaranteed.
-    static constexpr std::size_t sigStackSize = 32768 >= MINSIGSTKSZ ? 32768 : MINSIGSTKSZ;
+    // NOTE: glibc 2.34+ made MINSIGSTKSZ a runtime sysconf() call, not a
+    // constant — so we cannot use it in a constexpr. 32KB is well above
+    // MINSIGSTKSZ on all supported platforms. (Matches upstream Catch2 fix
+    // in v2.13.7.)
+    static constexpr std::size_t sigStackSize = 32768;
 
     static SignalDefs signalDefs[] = {
         { SIGINT,  "SIGINT - Terminal interrupt signal" },

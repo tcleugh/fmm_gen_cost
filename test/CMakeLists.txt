@@ -47,5 +47,18 @@ add_executable(weightmatch_test weightmatch_test.cpp
 target_link_libraries(weightmatch_test ${GDAL_LIBRARIES} ${Boost_LIBRARIES}
         ${OpenMP_CXX_LIBRARIES} ${OSMIUM_LIBRARIES})
 
+add_executable(polymatch_test polymatch_test.cpp
+        $<TARGET_OBJECTS:MM_OBJ>
+        $<TARGET_OBJECTS:CORE>
+        $<TARGET_OBJECTS:CONFIG>
+        $<TARGET_OBJECTS:ALGORITHM>
+        $<TARGET_OBJECTS:UTIL>
+        $<TARGET_OBJECTS:IO>
+        $<TARGET_OBJECTS:NETWORK>
+        $<TARGET_OBJECTS:WEIGHTMATCH_OBJ>
+        $<TARGET_OBJECTS:POLYMATCH_OBJ>)
+target_link_libraries(polymatch_test ${GDAL_LIBRARIES} ${Boost_LIBRARIES}
+        ${OpenMP_CXX_LIBRARIES} ${OSMIUM_LIBRARIES})
+
 add_custom_target(tests
-	DEPENDS algorithm_test network_test network_graph_test fmm_test weightmatch_test)
+	DEPENDS algorithm_test network_test network_graph_test fmm_test weightmatch_test polymatch_test)

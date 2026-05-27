@@ -29,12 +29,12 @@ Single C++ project; source under `src/`, tests under `test/`, app entry points u
 
 **Purpose**: Directory creation, CMake additions, test fixture generation
 
-- [ ] T001 Create source directory `/workspace/src/mm/polymatch/` for new algorithm files
-- [ ] T002 Create test fixture directory `/workspace/test/data/polymatch/` for polymatch-specific test data
+- [X] T001 Create source directory `/workspace/src/mm/polymatch/` for new algorithm files
+- [X] T002 Create test fixture directory `/workspace/test/data/polymatch/` for polymatch-specific test data
 - [ ] T003 [P] Create Python fixture generator at `/workspace/test/generate_polymatch_test_data.py` that emits a small road network shapefile (~20 edges, 4 intersections), a polygon shapefile (3 polygons including one self-intersecting invalid case and one polygon-with-no-AP case), an access point shapefile (covering link-attached, shared-between-polygons, off-boundary error, orphaned polygon ID error, and contradictory-geometry error cases), and a GPS CSV with trajectories covering all US1 scenarios (link-only, cross-polygon, two-polygons-shared-AP, mid-polygon start, mid-polygon end, fully-inside, through-routing)
-- [ ] T004 Add `POLYMATCH_OBJ` object library to `/workspace/CMakeLists.txt`: `file(GLOB POLYMATCHGlob src/mm/polymatch/*.cpp)` then `add_library(POLYMATCH_OBJ OBJECT ${POLYMATCHGlob})`; include `$<TARGET_OBJECTS:POLYMATCH_OBJ>` in the `FMMLIB` shared library composition (mirror the `WEIGHTMATCH_OBJ` pattern)
-- [ ] T005 Add `polymatch` executable target to `/workspace/CMakeLists.txt`: `add_executable(polymatch src/app/polymatch.cpp)` + `target_link_libraries(polymatch FMMLIB)` (mirror the `weightmatch` target)
-- [ ] T006 Add `polymatch_test` target to `/workspace/test/CMakeLists.txt` mirroring `weightmatch_test`: include `$<TARGET_OBJECTS:POLYMATCH_OBJ>` plus MM_OBJ, CORE, CONFIG, network, io object libs; link GDAL_LIBRARIES, Boost_LIBRARIES, OpenMP_CXX_LIBRARIES, OSMIUM_LIBRARIES
+- [X] T004 Add `POLYMATCH_OBJ` object library to `/workspace/CMakeLists.txt`: `file(GLOB POLYMATCHGlob src/mm/polymatch/*.cpp)` then `add_library(POLYMATCH_OBJ OBJECT ${POLYMATCHGlob})`; include `$<TARGET_OBJECTS:POLYMATCH_OBJ>` in the `FMMLIB` shared library composition (mirror the `WEIGHTMATCH_OBJ` pattern)
+- [X] T005 Add `polymatch` executable target to `/workspace/CMakeLists.txt`: `add_executable(polymatch src/app/polymatch.cpp)` + `target_link_libraries(polymatch FMMLIB)` (mirror the `weightmatch` target)
+- [X] T006 Add `polymatch_test` target to `/workspace/test/CMakeLists.txt` mirroring `weightmatch_test`: include `$<TARGET_OBJECTS:POLYMATCH_OBJ>` plus MM_OBJ, CORE, CONFIG, network, io object libs; link GDAL_LIBRARIES, Boost_LIBRARIES, OpenMP_CXX_LIBRARIES, OSMIUM_LIBRARIES
 
 ---
 
@@ -44,19 +44,19 @@ Single C++ project; source under `src/`, tests under `test/`, app entry points u
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 [P] Create `PolygonConfig` struct in `/workspace/src/config/polygon_config.hpp` with fields `file` (string), `id_name` (string, default `"id"`), `cost_name` (string, default `"cost"`); declare `validate()` and ptree XML reader
-- [ ] T008 [P] Implement `PolygonConfig::validate()` and `read_xml()` in `/workspace/src/config/polygon_config.cpp` mirroring `NetworkConfig`
-- [ ] T009 [P] Create `AccessPointConfig` struct in `/workspace/src/config/access_point_config.hpp` with fields `file` (string), `node_id_name` (string, default `"node_id"`), `polygon_id_name` (string, default `"polygon_id"`); declare `validate()` and ptree XML reader
-- [ ] T010 [P] Implement `AccessPointConfig::validate()` and `read_xml()` in `/workspace/src/config/access_point_config.cpp`
-- [ ] T011 [P] Create `Polygon` struct + `PolygonLayer` class declaration in `/workspace/src/network/polygon_layer.hpp` per data-model.md (fields: index, id, geom, weight, bbox; PolygonLayer container with `polygons`, `id_to_index`, `rtree`)
-- [ ] T012 [P] Create `AccessPointFeature`, `AccessPoint`, `AccessPointLayer` class declarations in `/workspace/src/network/access_point_layer.hpp` per data-model.md (AccessPoint has `index`, `node_id`, `point`, `polygons`, `attached_node`, `attached_edges`; AccessPointLayer container with lookups)
-- [ ] T013 [P] Declare `PolyLinkGraph` class + `shortest_polylink_to_polylinks()` routing function in `/workspace/src/network/poly_link_graph.hpp` per data-model.md including `n_edges`, `n_polygons`, `adjacency`, `through_cost_tables`, `polygon_local_ap_index`, `vertex_kind()`
-- [ ] T014 [P] Create `POLYMATCHConfig` struct in `/workspace/src/mm/polymatch/polymatch_algorithm.hpp` mirroring `WEIGHTMATCHConfig` field-for-field plus `through_penalty_factor` (default `1.5`) and `boundary_epsilon` (default `1e-6`); declare `validate()`, `register_arg()`, `load_from_arg()`, `register_help()`, `print()`
-- [ ] T015 [P] Implement `POLYMATCHConfig` methods (`validate`, `register_arg`, `load_from_arg`, `register_help`, `print`) in `/workspace/src/mm/polymatch/polymatch_algorithm.cpp` mirroring `WEIGHTMATCHConfig` implementation
-- [ ] T016 [P] Create `PolygonSegment` struct + `PolyMatchResult` struct + `kNoAccessPoint` sentinel constant (`= -1`) in `/workspace/src/mm/polymatch/poly_match_result.hpp` per data-model.md (fields: polygon_id, entry_ap, egress_ap, is_through, distance_inside, position_in_cpath)
-- [ ] T017 [P] Declare `POLYMATCH` matcher class skeleton in `/workspace/src/mm/polymatch/polymatch_algorithm.hpp`: constructor signature `POLYMATCH(Network&, PolygonLayer&, AccessPointLayer&, PolyLinkGraph&)`, `match_traj()` method signature mirroring `WEIGHTMATCH::match_traj`
-- [ ] T018 [P] Declare `POLYMATCHAppConfig` class in `/workspace/src/mm/polymatch/polymatch_app_config.hpp` containing `NetworkConfig`, `GPSConfig`, `ResultConfig`, `PolygonConfig`, `AccessPointConfig`, `POLYMATCHConfig`, plus `use_omp`, `help_specified`, `log_level`, `step` (mirror `WEIGHTMATCHAppConfig`)
-- [ ] T019 [P] Declare `POLYMATCHApp` orchestrator class in `/workspace/src/mm/polymatch/polymatch_app.hpp` taking `POLYMATCHAppConfig const&`; `run()` method declaration
+- [X] T007 [P] Create `PolygonConfig` struct in `/workspace/src/config/polygon_config.hpp` with fields `file` (string), `id_name` (string, default `"id"`), `cost_name` (string, default `"cost"`); declare `validate()` and ptree XML reader
+- [X] T008 [P] Implement `PolygonConfig::validate()` and `read_xml()` in `/workspace/src/config/polygon_config.cpp` mirroring `NetworkConfig`
+- [X] T009 [P] Create `AccessPointConfig` struct in `/workspace/src/config/access_point_config.hpp` with fields `file` (string), `node_id_name` (string, default `"node_id"`), `polygon_id_name` (string, default `"polygon_id"`); declare `validate()` and ptree XML reader
+- [X] T010 [P] Implement `AccessPointConfig::validate()` and `read_xml()` in `/workspace/src/config/access_point_config.cpp`
+- [X] T011 [P] Create `Polygon` struct + `PolygonLayer` class declaration in `/workspace/src/network/polygon_layer.hpp` per data-model.md (fields: index, id, geom, weight, bbox; PolygonLayer container with `polygons`, `id_to_index`, `rtree`)
+- [X] T012 [P] Create `AccessPointFeature`, `AccessPoint`, `AccessPointLayer` class declarations in `/workspace/src/network/access_point_layer.hpp` per data-model.md (AccessPoint has `index`, `node_id`, `point`, `polygons`, `attached_node`, `attached_edges`; AccessPointLayer container with lookups)
+- [X] T013 [P] Declare `PolyLinkGraph` class + `shortest_polylink_to_polylinks()` routing function in `/workspace/src/network/poly_link_graph.hpp` per data-model.md including `n_edges`, `n_polygons`, `adjacency`, `through_cost_tables`, `polygon_local_ap_index`, `vertex_kind()`
+- [X] T014 [P] Create `POLYMATCHConfig` struct in `/workspace/src/mm/polymatch/polymatch_algorithm.hpp` mirroring `WEIGHTMATCHConfig` field-for-field plus `through_penalty_factor` (default `1.5`) and `boundary_epsilon` (default `1e-6`); declare `validate()`, `register_arg()`, `load_from_arg()`, `register_help()`, `print()`
+- [X] T015 [P] Implement `POLYMATCHConfig` methods (`validate`, `register_arg`, `load_from_arg`, `register_help`, `print`) in `/workspace/src/mm/polymatch/polymatch_algorithm.cpp` mirroring `WEIGHTMATCHConfig` implementation
+- [X] T016 [P] Create `PolygonSegment` struct + `PolyMatchResult` struct + `kNoAccessPoint` sentinel constant (`= -1`) in `/workspace/src/mm/polymatch/poly_match_result.hpp` per data-model.md (fields: polygon_id, entry_ap, egress_ap, is_through, distance_inside, position_in_cpath)
+- [X] T017 [P] Declare `POLYMATCH` matcher class skeleton in `/workspace/src/mm/polymatch/polymatch_algorithm.hpp`: constructor signature `POLYMATCH(Network&, PolygonLayer&, AccessPointLayer&, PolyLinkGraph&)`, `match_traj()` method signature mirroring `WEIGHTMATCH::match_traj`
+- [X] T018 [P] Declare `POLYMATCHAppConfig` class in `/workspace/src/mm/polymatch/polymatch_app_config.hpp` containing `NetworkConfig`, `GPSConfig`, `ResultConfig`, `PolygonConfig`, `AccessPointConfig`, `POLYMATCHConfig`, plus `use_omp`, `help_specified`, `log_level`, `step` (mirror `WEIGHTMATCHAppConfig`)
+- [X] T019 [P] Declare `POLYMATCHApp` orchestrator class in `/workspace/src/mm/polymatch/polymatch_app.hpp` taking `POLYMATCHAppConfig const&`; `run()` method declaration
 
 **Checkpoint**: All headers compile. CMake configures without errors. No business logic yet.
 
