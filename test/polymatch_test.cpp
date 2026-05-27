@@ -19,6 +19,8 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -339,6 +341,167 @@ void create_aps_shared_only(const std::string &path) {
   GDALClose(ds);
 }
 
+// Build a larger grid network for the perf baseline: GRID x GRID nodes with
+// horizontal + vertical edges. With GRID=11 we get 121 nodes and 220 edges.
+void create_perf_network(const std::string &path, int grid = 11) {
+  GDALAllRegister();
+  GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
+  if (path_exists(path)) drv->Delete(path.c_str());
+  GDALDataset *ds = drv->Create(path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+  OGRLayer *layer = ds->CreateLayer("edges", nullptr, wkbLineString, nullptr);
+  OGRFieldDefn id_f("id", OFTInteger64); layer->CreateField(&id_f);
+  OGRFieldDefn s_f("source", OFTInteger64); layer->CreateField(&s_f);
+  OGRFieldDefn t_f("target", OFTInteger64); layer->CreateField(&t_f);
+
+  auto node_id = [grid](int r, int c) -> GIntBig {
+    return (GIntBig)(r * grid + c + 1);  // 1-based
+  };
+
+  GIntBig eid = 1;
+  for (int r = 0; r < grid; ++r) {
+    for (int c = 0; c < grid; ++c) {
+      double x = c * 1.0, y = r * 1.0;
+      // horizontal edge to (r, c+1)
+      if (c + 1 < grid) {
+        OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+        f->SetField("id", eid++);
+        f->SetField("source", node_id(r, c));
+        f->SetField("target", node_id(r, c + 1));
+        OGRLineString ls;
+        ls.addPoint(x, y);
+        ls.addPoint(x + 1.0, y);
+        f->SetGeometry(&ls);
+        layer->CreateFeature(f);
+        OGRFeature::DestroyFeature(f);
+      }
+      // vertical edge to (r+1, c)
+      if (r + 1 < grid) {
+        OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+        f->SetField("id", eid++);
+        f->SetField("source", node_id(r, c));
+        f->SetField("target", node_id(r + 1, c));
+        OGRLineString ls;
+        ls.addPoint(x, y);
+        ls.addPoint(x, y + 1.0);
+        f->SetGeometry(&ls);
+        layer->CreateFeature(f);
+        OGRFeature::DestroyFeature(f);
+      }
+    }
+  }
+  GDALClose(ds);
+}
+
+// 10x10 = 100 polygons. Each polygon is a 0.3 x 0.3 square centered at a grid
+// intersection. Each polygon gets one AP at one of its boundary corners.
+void create_perf_polygons(const std::string &path) {
+  GDALAllRegister();
+  GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
+  if (path_exists(path)) drv->Delete(path.c_str());
+  GDALDataset *ds = drv->Create(path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+  OGRLayer *layer = ds->CreateLayer("polys", nullptr, wkbPolygon, nullptr);
+  OGRFieldDefn id_f("id", OFTInteger64); layer->CreateField(&id_f);
+  OGRFieldDefn cf("cost", OFTReal); layer->CreateField(&cf);
+
+  GIntBig pid = 1;
+  for (int r = 1; r <= 10; ++r) {
+    for (int c = 1; c <= 10; ++c) {
+      double cx = c, cy = r;
+      OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+      f->SetField("id", pid++);
+      f->SetField("cost", 1.0);
+      OGRPolygon p; OGRLinearRing rr;
+      rr.addPoint(cx - 0.15, cy - 0.15);
+      rr.addPoint(cx + 0.15, cy - 0.15);
+      rr.addPoint(cx + 0.15, cy + 0.15);
+      rr.addPoint(cx - 0.15, cy + 0.15);
+      rr.addPoint(cx - 0.15, cy - 0.15);
+      p.addRing(&rr);
+      f->SetGeometry(&p);
+      layer->CreateFeature(f);
+      OGRFeature::DestroyFeature(f);
+    }
+  }
+  GDALClose(ds);
+}
+
+void create_perf_aps(const std::string &path, int grid = 11) {
+  // One AP per polygon. node_id chosen to be a real network node — we use
+  // the center node (r, c) of each polygon, which maps to node_id = r*grid+c+1.
+  GDALAllRegister();
+  GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
+  if (path_exists(path)) drv->Delete(path.c_str());
+  GDALDataset *ds = drv->Create(path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+  OGRLayer *layer = ds->CreateLayer("aps", nullptr, wkbPoint, nullptr);
+  OGRFieldDefn nf("node_id", OFTInteger64); layer->CreateField(&nf);
+  OGRFieldDefn pf("polygon_id", OFTInteger64); layer->CreateField(&pf);
+
+  GIntBig pid = 1;
+  for (int r = 1; r <= 10; ++r) {
+    for (int c = 1; c <= 10; ++c) {
+      // Place AP on the boundary at (cx-0.15, cy-0.15). The node at (r-1, c-1)
+      // doesn't have these exact coordinates but link attachment is by ID
+      // lookup — we still want a network node here. Use node (r-1, c-1) which
+      // sits at (c-1, r-1).
+      // But that's not on this polygon's boundary. To pass FR-005 validation
+      // we need the AP's geometry on the polygon boundary, and the AP node_id
+      // can be ANY value (linked or not). For this perf fixture we attach to
+      // a fake node ID (offset 1000+) so APs are polygon-only — but FR-004
+      // requires either link-attachment OR polygons.size() >= 2 — so this
+      // wouldn't validate.
+      //
+      // Solution: link AP geometry to the network node at (r, c) which is at
+      // (c, r) coordinates. The polygon boundary point closest to (c, r) is
+      // (cx-0.15, cy-0.15) for cx=c, cy=r? No — (c, r) is the polygon's CENTER,
+      // not boundary. We need the polygon centered ELSEWHERE so its corner
+      // overlaps a network node.
+      //
+      // Re-design: center polygon at (c+0.15, r+0.15) so its lower-left
+      // corner is at (c, r) which IS a network node.
+      double cx = c + 0.15, cy = r + 0.15;
+      OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+      f->SetField("node_id", (GIntBig)(r * grid + c + 1));  // network node at (c, r)
+      f->SetField("polygon_id", pid++);
+      OGRPoint pt(c, r);  // lower-left corner of the redesigned polygon
+      f->SetGeometry(&pt);
+      layer->CreateFeature(f);
+      OGRFeature::DestroyFeature(f);
+    }
+  }
+  GDALClose(ds);
+}
+
+// Redesigned polygons: lower-left corner anchored at network node (c, r).
+void create_perf_polygons_v2(const std::string &path) {
+  GDALAllRegister();
+  GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("ESRI Shapefile");
+  if (path_exists(path)) drv->Delete(path.c_str());
+  GDALDataset *ds = drv->Create(path.c_str(), 0, 0, 0, GDT_Unknown, nullptr);
+  OGRLayer *layer = ds->CreateLayer("polys", nullptr, wkbPolygon, nullptr);
+  OGRFieldDefn id_f("id", OFTInteger64); layer->CreateField(&id_f);
+  OGRFieldDefn cf("cost", OFTReal); layer->CreateField(&cf);
+
+  GIntBig pid = 1;
+  for (int r = 1; r <= 10; ++r) {
+    for (int c = 1; c <= 10; ++c) {
+      OGRFeature *f = OGRFeature::CreateFeature(layer->GetLayerDefn());
+      f->SetField("id", pid++);
+      f->SetField("cost", 1.0);
+      OGRPolygon p; OGRLinearRing rr;
+      rr.addPoint(c, r);
+      rr.addPoint(c + 0.3, r);
+      rr.addPoint(c + 0.3, r + 0.3);
+      rr.addPoint(c, r + 0.3);
+      rr.addPoint(c, r);
+      p.addRing(&rr);
+      f->SetGeometry(&p);
+      layer->CreateFeature(f);
+      OGRFeature::DestroyFeature(f);
+    }
+  }
+  GDALClose(ds);
+}
+
 class Fixture {
  public:
   std::string network_path;
@@ -351,6 +514,9 @@ class Fixture {
   std::string aps_contradictory_path;
   std::string poly_shared_path;
   std::string aps_shared_path;
+  std::string perf_net_path;
+  std::string perf_polys_path;
+  std::string perf_aps_path;
 
   Fixture() {
     ensure_dir(kFixtureDir);
@@ -364,6 +530,9 @@ class Fixture {
     aps_contradictory_path = std::string(kFixtureDir) + "/aps_contradictory.shp";
     poly_shared_path = std::string(kFixtureDir) + "/polygons_shared.shp";
     aps_shared_path = std::string(kFixtureDir) + "/aps_shared.shp";
+    perf_net_path = std::string(kFixtureDir) + "/perf_edges.shp";
+    perf_polys_path = std::string(kFixtureDir) + "/perf_polygons.shp";
+    perf_aps_path = std::string(kFixtureDir) + "/perf_aps.shp";
 
     create_network_shapefile(network_path);
     create_polygons_shapefile(polygons_path);
@@ -375,6 +544,9 @@ class Fixture {
     create_aps_contradictory(aps_contradictory_path);
     create_polygons_with_shared_boundary(poly_shared_path);
     create_aps_shared_only(aps_shared_path);
+    create_perf_network(perf_net_path);
+    create_perf_polygons_v2(perf_polys_path);
+    create_perf_aps(perf_aps_path);
   }
 };
 
@@ -1588,4 +1760,50 @@ TEST_CASE("Config defaults (smoke)", "[polymatch][smoke]") {
   PolyMatchResult result;
   REQUIRE(result.polygon_segments.empty());
   REQUIRE(kNoAccessPoint == -1);
+}
+
+// ============================================================
+// Perf baseline (T081) — hidden by default, run with `polymatch_test [.bench]`
+// ============================================================
+
+TEST_CASE("Perf baseline: 1000 GPS points x 100 polygons < 10s (T081 SC-003)",
+          "[.bench][polymatch][perf]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().perf_net_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().perf_polys_path, "id", "cost"}));
+  REQUIRE(poly.size() == 100);
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().perf_aps_path, "node_id", "polygon_id"}, poly,
+                   net, 1e-6));
+  REQUIRE(aps.size() == 100);
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // 1000-point trajectory along the row y=5.0 (network edge between nodes
+  // 56-66) sweeping from x=1.0 to x=9.0 with small noise. Every point sits
+  // within candidate radius of a network edge, so all layers have candidates.
+  Trajectory traj; traj.id = 1;
+  for (int i = 0; i < 1000; ++i) {
+    double x = 1.0 + (i / 999.0) * 8.0;
+    double y = 5.0 + ((i % 2) ? 0.001 : -0.001);
+    traj.geom.add_point(x, y);
+  }
+  REQUIRE(traj.geom.get_num_points() == 1000);
+
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.05;
+
+  DijkstraState state; IndexedMinHeap heap;
+  auto t0 = std::chrono::steady_clock::now();
+  PolyMatchResult result =
+      matcher.match_traj(traj, cfg, state, heap, false, nullptr);
+  auto t1 = std::chrono::steady_clock::now();
+  double secs = std::chrono::duration<double>(t1 - t0).count();
+  WARN("perf baseline elapsed: " << secs << "s, "
+                                  << result.base.opath.size() << " opath, "
+                                  << result.polygon_segments.size()
+                                  << " polygon segments");
+  CHECK(secs < 10.0);  // SC-003
 }
