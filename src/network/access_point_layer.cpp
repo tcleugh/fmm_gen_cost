@@ -143,10 +143,18 @@ bool AccessPointLayer::load(const CONFIG::AccessPointConfig &config,
     }
 
     if (!ap.attached_node.has_value() && ap.polygons.size() < 2) {
-      SPDLOG_CRITICAL(
-          "Access point node_id {} is neither link-attached nor shared between polygons (FR-004)",
+      // Unusable AP: no network-node attachment and only one polygon — the
+      // matcher cannot route into or out of the polygon via this AP. Skip
+      // with a warning instead of halting; real shapefiles (OSM-derived,
+      // filtered networks) occasionally contain such orphans. Polymatch
+      // spec FR-005 lists only the three halt conditions checked above
+      // (boundary mismatch, orphan polygon, contradictory geometry) — this
+      // case was over-strict halt logic, now relaxed to skip per
+      // specs/002-real-network-validation Assumptions.
+      SPDLOG_WARN(
+          "Access point node_id {} is orphan (not in network) and single-polygon; skipping",
           node_id);
-      return false;
+      continue;
     }
 
     AccessPointIndex idx = ap.index;

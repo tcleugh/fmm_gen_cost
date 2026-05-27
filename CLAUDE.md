@@ -23,6 +23,10 @@ cd build && cmake .. && make tests
 ./build/test/fmm_test
 ./build/test/network_test
 ./build/test/network_graph_test
+
+# Polymatch real-network validation suite (default-on; runs as part of polymatch_test).
+# Use the tag to run only the real-network subset during iteration.
+./build/polymatch_test '[real_network]'
 ```
 
 Executables are output to `build/`: `fmm`, `stmatch`, `weightmatch`, `h3mm`, `ubodt_gen`.

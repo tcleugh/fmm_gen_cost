@@ -161,11 +161,14 @@ target_link_libraries(weightmatch FMMLIB)
 add_executable(polymatch src/app/polymatch.cpp)
 target_link_libraries(polymatch FMMLIB)
 
+add_executable(polymatch_traces_gen src/app/polymatch_traces_gen.cpp)
+target_link_libraries(polymatch_traces_gen FMMLIB)
+
 message(STATUS "Installation folder ${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS FMMLIB LIBRARY DESTINATION lib)
 
-install(TARGETS fmm ubodt_gen stmatch h3mm weightmatch polymatch DESTINATION bin)
+install(TARGETS fmm ubodt_gen stmatch h3mm weightmatch polymatch polymatch_traces_gen DESTINATION bin)
 
 if(FMM_INSTALL_HEADER)
   message(STATUS "Install fmm headers")
