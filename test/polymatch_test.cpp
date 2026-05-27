@@ -21,6 +21,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <thread>
 
 using namespace FMM;
 using namespace FMM::CORE;
@@ -590,6 +591,87 @@ TEST_CASE("Mid-polygon start has no entry AP (T054 FR-007/FR-010)",
     // First polygon segment is the mid-polygon start; entry_ap must be absent.
     REQUIRE(result.polygon_segments.front().entry_ap == kNoAccessPoint);
   }
+}
+
+TEST_CASE("CLI parses polygon-specific flags (T030)", "[polymatch][us2]") {
+  // Drive the same cxxopts pipeline POLYMATCHAppConfig uses, then check our
+  // load_from_arg methods land the values in the right fields.
+  cxxopts::Options options("polymatch_test", "");
+  CONFIG::NetworkConfig::register_arg(options);
+  CONFIG::GPSConfig::register_arg(options);
+  CONFIG::ResultConfig::register_arg(options);
+  CONFIG::PolygonConfig::register_arg(options);
+  CONFIG::AccessPointConfig::register_arg(options);
+  POLYMATCHConfig::register_arg(options);
+
+  std::vector<std::string> argv_storage = {
+      "polymatch",
+      "--polygons", "p.shp",
+      "--polygon_id_name", "myid",
+      "--polygon_cost_name", "mycost",
+      "--access_points", "ap.shp",
+      "--ap_node_id_name", "nid",
+      "--ap_polygon_id_name", "pid",
+      "--through_penalty_factor", "2.5",
+      "--boundary_epsilon", "0.001",
+  };
+  std::vector<char *> argv;
+  for (auto &s : argv_storage) argv.push_back(&s[0]);
+  int argc = static_cast<int>(argv.size());
+  char **argv_ptr = argv.data();
+
+  auto result = options.parse(argc, argv_ptr);
+  auto pcfg = CONFIG::PolygonConfig::load_from_arg(result);
+  auto acfg = CONFIG::AccessPointConfig::load_from_arg(result);
+  auto algocfg = POLYMATCHConfig::load_from_arg(result);
+
+  CHECK(pcfg.file == "p.shp");
+  CHECK(pcfg.id_name == "myid");
+  CHECK(pcfg.cost_name == "mycost");
+  CHECK(acfg.file == "ap.shp");
+  CHECK(acfg.node_id_name == "nid");
+  CHECK(acfg.polygon_id_name == "pid");
+  CHECK(algocfg.through_penalty_factor == Approx(2.5));
+  CHECK(algocfg.boundary_epsilon == Approx(0.001));
+}
+
+TEST_CASE("PolyMMWriter concurrent writes do not corrupt rows (T075 FR-017)",
+          "[polymatch][us3]") {
+  std::string out_path = std::string(kFixtureDir) + "/poly_writer_concurrent.csv";
+  ::remove(out_path.c_str());
+  CONFIG::OutputConfig oc;
+  oc.write_opath = false; oc.write_cpath = false; oc.write_mgeom = false;
+  oc.write_error = false; oc.write_offset = false; oc.write_spdist = false;
+  oc.write_pgeom = false; oc.write_tpath = false;
+
+  constexpr int kNumThreads = 4;
+  constexpr int kPerThread = 200;
+  {
+    IO::PolyMMWriter w(out_path, oc, /*include_polygon_columns=*/true);
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kNumThreads; ++t) {
+      threads.emplace_back([t, &w]() {
+        for (int i = 0; i < kPerThread; ++i) {
+          Trajectory tr; tr.id = t * 10000 + i;
+          PolyMatchResult r;
+          r.base.id = tr.id;
+          r.polygon_segments.push_back({7, 5, 9, false, 1.0, 0});
+          w.write_result(tr, r);
+        }
+      });
+    }
+    for (auto &th : threads) th.join();
+  }
+  std::ifstream in(out_path);
+  std::string line;
+  int data_rows = 0;
+  std::getline(in, line);  // header
+  while (std::getline(in, line)) {
+    if (!line.empty()) ++data_rows;
+  }
+  // 4 * 200 = 800 rows expected, mutex must serialize writes so no
+  // line is interleaved or lost.
+  CHECK(data_rows == kNumThreads * kPerThread);
 }
 
 TEST_CASE("Cross-polygon traversal records entry & egress APs (T050)",
