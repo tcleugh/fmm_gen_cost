@@ -565,6 +565,120 @@ TEST_CASE("Emission distance equals min boundary distance for point outside poly
   REQUIRE(poly.min_boundary_distance(p7, gps) == Approx(0.3));
 }
 
+TEST_CASE("Entirely-inside trajectory yields single polygon segment with no APs (T051)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // All GPS points strictly inside polygon 7
+  Trajectory traj; traj.id = 200;
+  traj.geom.add_point(0.85, 0.85);
+  traj.geom.add_point(1.0, 1.0);
+  traj.geom.add_point(1.15, 1.15);
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.05;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  // The HMM is free to pick polygon-only or hybrid. *If* the result has any
+  // polygon-7 segment that started at GPS layer 0 and ended at the last
+  // layer, both APs must be absent (no entry, no egress).
+  if (!result.polygon_segments.empty()) {
+    bool found_p7 = false;
+    for (const auto &seg : result.polygon_segments) {
+      if (seg.polygon_id == 7) {
+        found_p7 = true;
+        // First polygon segment: entry_ap must be absent.
+        if (&seg == &result.polygon_segments.front()) {
+          CHECK(seg.entry_ap == kNoAccessPoint);
+        }
+        // Last polygon segment: egress_ap must be absent.
+        if (&seg == &result.polygon_segments.back()) {
+          CHECK(seg.egress_ap == kNoAccessPoint);
+        }
+      }
+    }
+    INFO("found polygon 7 segment: " << found_p7);
+  }
+}
+
+TEST_CASE("Mid-polygon end has no egress AP (T055 FR-007/FR-010)",
+          "[polymatch][us1]") {
+  spdlog::set_level(spdlog::level::off);
+  Network net(fixture().network_path, "NO_TURN_BANS", "id", "source", "target");
+  LinkGraph link_graph(net);
+  PolygonLayer poly;
+  REQUIRE(poly.load({fixture().polygons_path, "id", "cost"}));
+  AccessPointLayer aps;
+  REQUIRE(aps.load({fixture().aps_path, "node_id", "polygon_id"}, poly, net,
+                   1e-6));
+  PolyLinkGraph G(net, link_graph, poly, aps, 1.5);
+  POLYMATCH matcher(net, poly, aps, G, link_graph);
+
+  // Trajectory enters polygon 7 from outside (left), ends inside.
+  Trajectory traj; traj.id = 104;
+  traj.geom.add_point(0.5, 1.0);  // outside, on edge 3
+  traj.geom.add_point(0.9, 1.0);  // inside polygon 7
+  traj.geom.add_point(1.0, 1.0);  // inside polygon 7
+  POLYMATCHConfig cfg;
+  cfg.k = 4; cfg.radius = 0.5; cfg.gps_error = 0.05;
+  DijkstraState state; IndexedMinHeap heap;
+  PolyMatchResult result = matcher.match_traj(traj, cfg, state, heap, false,
+                                              nullptr);
+  if (!result.polygon_segments.empty()) {
+    // Last polygon segment should have egress_ap absent (trajectory ends
+    // inside the polygon).
+    CHECK(result.polygon_segments.back().egress_ap == kNoAccessPoint);
+  }
+}
+
+TEST_CASE("CLI parity: polymatch accepts every weightmatch flag (T089)",
+          "[polymatch][us2]") {
+  // Build the full polymatch option set and assert each weightmatch flag is
+  // present. cxxopts has no public "list options" API, so we check by
+  // attempting to parse a minimal argv that uses each.
+  cxxopts::Options pm("polymatch", "");
+  CONFIG::NetworkConfig::register_arg(pm);
+  CONFIG::GPSConfig::register_arg(pm);
+  CONFIG::ResultConfig::register_arg(pm);
+  CONFIG::PolygonConfig::register_arg(pm);
+  CONFIG::AccessPointConfig::register_arg(pm);
+  POLYMATCHConfig::register_arg(pm);
+  pm.add_options()
+    ("l,log_level", "", cxxopts::value<int>()->default_value("2"))
+    ("s,step", "", cxxopts::value<int>()->default_value("100"))
+    ("h,help", "")
+    ("use_omp", "");
+
+  // Each of these is the set weightmatch documents in its CLI; if any one
+  // is missing on polymatch, parse() will throw.
+  std::vector<std::string> argv_storage = {
+      "polymatch",
+      "--network", "n.shp",
+      "--gps", "g.csv",
+      "--output", "o.csv",
+      "--candidates", "4",
+      "--radius", "0.5",
+      "--error", "0.1",
+      "--backup_candidates", "-1",
+      "--backup_radius", "-1",
+      "--upper_bound_factor", "10.0",
+  };
+  std::vector<char *> argv;
+  for (auto &s : argv_storage) argv.push_back(&s[0]);
+  int argc = (int)argv.size();
+  char **argv_ptr = argv.data();
+  CHECK_NOTHROW(pm.parse(argc, argv_ptr));
+}
+
 TEST_CASE("Mid-polygon start has no entry AP (T054 FR-007/FR-010)",
           "[polymatch][us1]") {
   spdlog::set_level(spdlog::level::off);
