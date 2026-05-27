@@ -1,7 +1,11 @@
 # Contract: PolyMatch Output CSV
 
 Output produced by `FMM::IO::PolyMMWriter`. Mirrors the existing `CSVMatchResultWriter` output with
-four additional columns for polygon traversal information.
+five additional columns for polygon traversal information.
+
+For the base columns (`id`, `opath`, `cpath`, `mgeom`, etc.), see
+[../../000-pre-existing/contracts/match-result-csv.md](../../000-pre-existing/contracts/match-result-csv.md).
+This file documents only the polymatch-specific delta.
 
 ## Format
 

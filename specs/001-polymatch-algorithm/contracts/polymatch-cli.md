@@ -3,6 +3,10 @@
 The `polymatch` executable mirrors `weightmatch`'s CLI shape with two additional layer configurations
 (polygon, access point) and one additional algorithm parameter (through-penalty factor).
 
+For the shared flags polymatch inherits from `NetworkConfig`, `GPSConfig`, and `ResultConfig`, see
+[../../000-pre-existing/contracts/matcher-cli.md](../../000-pre-existing/contracts/matcher-cli.md).
+This file documents only the polymatch-specific additions and overrides.
+
 ## Synopsis
 
 ```text
