@@ -4,6 +4,10 @@
 #include "network/network_graph.hpp"
 #include "network/bidirectional_network_graph.hpp"
 
+#ifndef FMM_TEST_DATA_DIR
+#error "FMM_TEST_DATA_DIR must be set via target_compile_definitions"
+#endif
+
 using namespace FMM;
 using namespace FMM::CORE;
 using namespace FMM::NETWORK;
@@ -13,7 +17,8 @@ using namespace std;
 TEST_CASE( "Network graph is tested", "[network_graph]" ) {
   spdlog::set_level((spdlog::level::level_enum) 0);
   spdlog::set_pattern("[%l][%s:%-3#] %v");
-  Network network("../data/network.gpkg");
+  Network network(std::string(FMM_TEST_DATA_DIR) + "/network.gpkg",
+                  "NO_TURN_BANS");
   NetworkGraph ng(network);
   BidirectionalNetworkGraph bng(network);
 

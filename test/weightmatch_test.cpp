@@ -16,6 +16,13 @@
 #include <string>
 #include <vector>
 
+#ifndef FMM_TEST_DATA_DIR
+#error "FMM_TEST_DATA_DIR must be set via target_compile_definitions"
+#endif
+#ifndef FMM_EXAMPLE_DATA_DIR
+#error "FMM_EXAMPLE_DATA_DIR must be set via target_compile_definitions"
+#endif
+
 using namespace FMM;
 using namespace FMM::IO;
 using namespace FMM::CORE;
@@ -60,7 +67,7 @@ static std::string vec2str(const std::vector<T> &v) {
 
 TEST_CASE("weightmatch basic matching", "[weightmatch]") {
   spdlog::set_level(spdlog::level::warn);
-  Network network("../../example/data/edges.shp", "NO_TURN_BANS",
+  Network network(std::string(FMM_EXAMPLE_DATA_DIR) + "/edges.shp", "NO_TURN_BANS",
     "id", "source", "target", "NO_WEIGHT");
   LinkGraph graph(network);
 
@@ -68,11 +75,11 @@ TEST_CASE("weightmatch basic matching", "[weightmatch]") {
   WEIGHTMATCH model(network, graph);
 
   CSVTrajectoryReader reader(
-    "../../test/data/weightmatch/trips_basic.csv", "id", "geom");
+    std::string(FMM_TEST_DATA_DIR) + "/weightmatch/trips_basic.csv", "id", "geom");
   std::vector<Trajectory> trajectories = reader.read_all_trajectories();
 
   SECTION("basic_match against golden file") {
-    auto golden = read_golden("../../test/data/weightmatch/expected_basic.csv");
+    auto golden = read_golden(std::string(FMM_TEST_DATA_DIR) + "/weightmatch/expected_basic.csv");
     REQUIRE(!golden.empty());
     REQUIRE(trajectories.size() == golden.size());
 
@@ -106,7 +113,7 @@ TEST_CASE("weightmatch basic matching", "[weightmatch]") {
 
 TEST_CASE("weightmatch edge cases", "[weightmatch]") {
   spdlog::set_level(spdlog::level::warn);
-  Network network("../../example/data/edges.shp", "NO_TURN_BANS",
+  Network network(std::string(FMM_EXAMPLE_DATA_DIR) + "/edges.shp", "NO_TURN_BANS",
     "id", "source", "target", "NO_WEIGHT");
   LinkGraph graph(network);
 
@@ -114,12 +121,12 @@ TEST_CASE("weightmatch edge cases", "[weightmatch]") {
   WEIGHTMATCH model(network, graph);
 
   CSVTrajectoryReader reader(
-    "../../test/data/weightmatch/trips_edge_cases.csv", "id", "geom");
+    std::string(FMM_TEST_DATA_DIR) + "/weightmatch/trips_edge_cases.csv", "id", "geom");
   std::vector<Trajectory> trajectories = reader.read_all_trajectories();
 
   SECTION("edge_cases against golden file") {
     auto golden = read_golden(
-      "../../test/data/weightmatch/expected_edge_cases.csv");
+      std::string(FMM_TEST_DATA_DIR) + "/weightmatch/expected_edge_cases.csv");
     REQUIRE(!golden.empty());
     REQUIRE(trajectories.size() == golden.size());
 
@@ -178,7 +185,7 @@ static void run_golden_check(
 TEST_CASE("weightmatch SA4=212 small real network", "[weightmatch][sa4_212]") {
   spdlog::set_level(spdlog::level::warn);
   WEIGHTMATCHConfig config(4, 300, 50);
-  std::string base = "../../test/data/weightmatch/sa4_212/";
+  std::string base = std::string(FMM_TEST_DATA_DIR) + "/weightmatch/sa4_212/";
 
   SECTION("basic without turn bans") {
     run_golden_check(
@@ -224,7 +231,7 @@ TEST_CASE("weightmatch SA4=212 small real network", "[weightmatch][sa4_212]") {
 TEST_CASE("weightmatch SA4=17 medium real network", "[weightmatch][sa4_17]") {
   spdlog::set_level(spdlog::level::warn);
   WEIGHTMATCHConfig config(4, 300, 50);
-  std::string base = "../../test/data/weightmatch/sa4_17/";
+  std::string base = std::string(FMM_TEST_DATA_DIR) + "/weightmatch/sa4_17/";
 
   SECTION("basic without turn bans") {
     run_golden_check(
@@ -270,7 +277,7 @@ TEST_CASE("weightmatch SA4=17 medium real network", "[weightmatch][sa4_17]") {
 TEST_CASE("weightmatch SA4=212 stress (1000 trips)", "[weightmatch][sa4_212][stress]") {
   spdlog::set_level(spdlog::level::warn);
   WEIGHTMATCHConfig config(4, 300, 50);
-  std::string base = "../../test/data/weightmatch/sa4_212/";
+  std::string base = std::string(FMM_TEST_DATA_DIR) + "/weightmatch/sa4_212/";
 
   run_golden_check(
     base + "links.shp", "NO_TURN_BANS",
@@ -280,7 +287,7 @@ TEST_CASE("weightmatch SA4=212 stress (1000 trips)", "[weightmatch][sa4_212][str
 TEST_CASE("weightmatch SA4=17 stress (500 trips)", "[weightmatch][sa4_17][stress]") {
   spdlog::set_level(spdlog::level::warn);
   WEIGHTMATCHConfig config(4, 300, 50);
-  std::string base = "../../test/data/weightmatch/sa4_17/";
+  std::string base = std::string(FMM_TEST_DATA_DIR) + "/weightmatch/sa4_17/";
 
   run_golden_check(
     base + "links.shp", "NO_TURN_BANS",
@@ -316,7 +323,7 @@ TEST_CASE("weightmatch SA4=17 stress (500 trips)", "[weightmatch][sa4_17][stress
 TEST_CASE("weightmatch allow_truncation", "[weightmatch][truncation]") {
   spdlog::set_level(spdlog::level::warn);
 
-  Network network("../../example/data/edges.shp", "NO_TURN_BANS",
+  Network network(std::string(FMM_EXAMPLE_DATA_DIR) + "/edges.shp", "NO_TURN_BANS",
     "id", "source", "target", "NO_WEIGHT");
   LinkGraph graph(network);
   WEIGHTMATCH model(network, graph);

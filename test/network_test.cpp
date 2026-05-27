@@ -4,6 +4,10 @@
 #include "network/network.hpp"
 #include "algorithm/geom_algorithm.hpp"
 
+#ifndef FMM_TEST_DATA_DIR
+#error "FMM_TEST_DATA_DIR must be set via target_compile_definitions"
+#endif
+
 using namespace FMM;
 using namespace FMM::CORE;
 using namespace FMM::ALGORITHM;
@@ -14,7 +18,8 @@ using namespace std;
 TEST_CASE( "Network is tested", "[network]" ) {
   spdlog::set_level((spdlog::level::level_enum) 0);
   spdlog::set_pattern("[%l][%s:%-3#] %v");
-  Network network("../data/network.gpkg");
+  Network network(std::string(FMM_TEST_DATA_DIR) + "/network.gpkg",
+                  "NO_TURN_BANS");
 
   SECTION( "node edge getter test" ) {
     NodeID nid = 6;
