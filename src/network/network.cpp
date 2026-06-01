@@ -35,7 +35,9 @@ Network::Network(
   const std::string &target_name,
   const std::string &weight_name
 ) {
-  if (FMM::UTIL::check_file_extension(filename, "shp")) {
+  // OGR handles many vector formats. Accept any extension supported by the
+  // installed GDAL build — the historical .shp-only gate was over-strict.
+  if (FMM::UTIL::check_file_extension(filename, "shp,gpkg,geojson")) {
     read_ogr_file(filename, id_name, source_name, target_name, weight_name);
   } else {
     std::string message = (boost::format("Network file not supported %1%") % filename).str();
@@ -131,7 +133,7 @@ void Network::read_ogr_file(
     SPDLOG_DEBUG("Geometry type of network is {}",
                  OGRGeometryTypeToName(ogrFDefn->GetGeomType()));
   }
-  OGRSpatialReference *ogrsr = ogrFDefn->GetGeomFieldDefn(0)->GetSpatialRef();
+  const OGRSpatialReference *ogrsr = ogrFDefn->GetGeomFieldDefn(0)->GetSpatialRef();
   if (ogrsr != nullptr) {
     srid = ogrsr->GetEPSGGeogCS();
     if (srid == -1) {

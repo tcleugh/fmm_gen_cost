@@ -1,0 +1,2 @@
+id;opath;cpath;mgeom;polygon_ids;entry_aps;egress_aps;is_through;polygon_distances
+1001;1,2;1,2,-7;LINESTRING();7;5;9;0;47.83

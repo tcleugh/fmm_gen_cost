@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config>
+  <input>
+    <polygon>
+      <file>polygons.shp</file>
+      <id_name>myid</id_name>
+      <cost_name>mycost</cost_name>
+    </polygon>
+    <access_point>
+      <file>access_points.shp</file>
+      <node_id_name>nid</node_id_name>
+      <polygon_id_name>pid</polygon_id_name>
+    </access_point>
+  </input>
+  <parameters>
+    <k>10</k>
+    <r>500</r>
+    <gps_error>25</gps_error>
+    <through_penalty_factor>3.0</through_penalty_factor>
+    <boundary_epsilon>0.0001</boundary_epsilon>
+  </parameters>
+</config>
