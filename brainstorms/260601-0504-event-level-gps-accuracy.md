@@ -320,8 +320,10 @@ degenerate value under the single `finite && > 0` predicate. Inferred readings a
       special C++ confidence flag needed).
 - [ ] `eu_dists` misalignment — fix in this pass or leave.
 - [ ] Metric-CRS startup guard placement.
-- [ ] `has_accuracy()` should test `accuracy_idx >= 0` (the timestamp mirror uses `> 0`, which
-      silently misses a column in position 0).
+- [x] `has_accuracy()` predicate (resolved 2026-08-13): new `has_accuracy()` uses `accuracy_idx >= 0`.
+      **Also fix the existing `has_timestamp()` `> 0` → `>= 0`** in all three readers
+      (`gps_reader.cpp:90, 161, 331`) — same latent bug (a column at index 0 is silently dropped;
+      reachable in GDAL where field 0 is arbitrary). Done as part of Task 1.
 
 ## Accuracy-distribution data (car) — parameter-setting protocol (2026-08-13)
 
