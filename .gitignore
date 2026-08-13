@@ -95,3 +95,5 @@ sync.sh
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 *.pyc
+
+documented_sessions
