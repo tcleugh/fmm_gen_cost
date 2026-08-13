@@ -5,6 +5,9 @@
 [Implementation addendum](#implementation-addendum--2026-08-13-code-grounded-revisit) for the
 code-grounded plan (Task 1 / Branch C of
 [scopestorms/260623-0117-road-traffic-update-revisit.md](../scopestorms/260623-0117-road-traffic-update-revisit.md)).
+**All revisit open decisions resolved 2026-08-13**; only the concrete parameter *values*
+(`sigma_floor`/`sigma_cap`/`k_max`) remain, pending the car accuracy-distribution parquet — see the
+[parameter-setting protocol](#accuracy-distribution-data-car--parameter-setting-protocol-2026-08-13).
 
 ## Goal
 
@@ -318,8 +321,11 @@ degenerate value under the single `finite && > 0` predicate. Inferred readings a
 - [x] Column naming (resolved 2026-08-13): **`accuracy`**, value **always in metres** by contract → no
       column-unit config or conversion; directly comparable to map units under the metric-CRS precondition,
       so `scale ≈ 1` is meaningful. (Absent-column fallback still covers legacy/non-car inputs per D1.)
-- [ ] Tunnel-portal events: confirm they carry a small explicit accuracy value in the column (no
-      special C++ confidence flag needed).
+- [x] Tunnel-portal events (resolved 2026-08-13): the pipeline writes a **small explicit `accuracy` value
+      (metres)** on synthetic portal points → they take the valid band + tight-emission path; **no C++
+      confidence flag, no Task 1 special-casing**. Owned by **Task 2**. Task 2 notes: set the value
+      ≥ `sigma_floor` (else it's silently clamped — still tight); the count-floor `k` guarantees the portal
+      edge is in the candidate set, so pinning comes from emission weight, not a starved candidate set.
 - [x] `eu_dists` misalignment (resolved 2026-08-13): **fix in this pass** — `eu_dists[i + first_index]`
       via `first_index` threaded into `update_tg`; regenerate any golden with a leading trim.
 - [x] Metric-CRS guard (resolved 2026-08-13): at `network.cpp:~135` inside the existing
