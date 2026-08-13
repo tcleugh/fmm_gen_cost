@@ -322,7 +322,11 @@ degenerate value under the single `finite && > 0` predicate. Inferred readings a
       special C++ confidence flag needed).
 - [x] `eu_dists` misalignment (resolved 2026-08-13): **fix in this pass** — `eu_dists[i + first_index]`
       via `first_index` threaded into `update_tg`; regenerate any golden with a leading trim.
-- [ ] Metric-CRS startup guard placement.
+- [x] Metric-CRS guard (resolved 2026-08-13): at `network.cpp:~135` inside the existing
+      `ogrsr != nullptr` block — **`ogrsr->IsGeographic()` → `SPDLOG_WARN`** (authoritative CRS-metadata
+      check; **supersedes** the doc's coordinate-range heuristic). Range check (`|x|≤180, |y|≤90` over the
+      network bbox) kept only as the `ogrsr == nullptr` fallback. Warn, not hard-error. Residual (unguarded):
+      a projected non-metre CRS, e.g. US survey feet — rare vs the degrees mistake.
 - [x] `has_accuracy()` predicate (resolved 2026-08-13): new `has_accuracy()` uses `accuracy_idx >= 0`.
       **Also fix the existing `has_timestamp()` `> 0` → `>= 0`** in all three readers
       (`gps_reader.cpp:90, 161, 331`) — same latent bug (a column at index 0 is silently dropped;
