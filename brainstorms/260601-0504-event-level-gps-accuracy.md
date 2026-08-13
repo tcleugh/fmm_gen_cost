@@ -272,7 +272,9 @@ the **full** geometry (`:273`) and indexes it with the *trimmed* layer index. Wh
 `first_index+i` — misaligned. Pre-existing, independent of this work, reachable only with
 `allow_truncation` + missing leading candidates. The sigma vector must slice as
 `sigma_full[i+first_index]` to be correct; the same discipline would fix `eu_dists`.
-**Open: fix in this pass or leave as-is.**
+**Resolved 2026-08-13: fix in this pass** — thread `first_index` into `update_tg` and index
+`eu_dists[i + first_index]` (the same slice-at-`first_index` discipline as the sigma vector).
+Regenerate any golden that exercises a leading trim (`first_index > 0`).
 
 ### Per-point fallback — heterogeneous admission (resolved 2026-08-13)
 
@@ -318,7 +320,8 @@ degenerate value under the single `finite && > 0` predicate. Inferred readings a
       so `scale ≈ 1` is meaningful. (Absent-column fallback still covers legacy/non-car inputs per D1.)
 - [ ] Tunnel-portal events: confirm they carry a small explicit accuracy value in the column (no
       special C++ confidence flag needed).
-- [ ] `eu_dists` misalignment — fix in this pass or leave.
+- [x] `eu_dists` misalignment (resolved 2026-08-13): **fix in this pass** — `eu_dists[i + first_index]`
+      via `first_index` threaded into `update_tg`; regenerate any golden with a leading trim.
 - [ ] Metric-CRS startup guard placement.
 - [x] `has_accuracy()` predicate (resolved 2026-08-13): new `has_accuracy()` uses `accuracy_idx >= 0`.
       **Also fix the existing `has_timestamp()` `> 0` → `>= 0`** in all three readers
