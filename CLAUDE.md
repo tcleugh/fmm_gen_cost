@@ -123,6 +123,8 @@ When adding a matcher option, it typically must be threaded through all four: th
 
 ## Repo conventions
 
+- **Commit as you go.** After each meaningful, self-contained change, make a descriptive commit rather
+  than batching many changes into one. Don't push or open PRs unless asked.
 - Branches follow `tcleugh/tessa/<feature>`; changes land via PR merges to `master`.
 - `brainstorms/` holds design docs (e.g. GPS-accuracy explorations); `.claude/skills/` provides the
   `brainstorm` and `scopestorm` workflows used to produce them.
