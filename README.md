@@ -1,3 +1,11 @@
+> ## This repository has moved
+>
+> Development of this fork continues as **`weightmatch`** at
+> <https://gitlab.veitchlister.com.au/vlc/weightmatch> (VLC GitLab, internal access).
+>
+> This repository is archived and read-only. The full history and all branches were migrated on
+> 2026-08-14, so nothing here is lost. Clone the GitLab repo instead.
+
 <div align="center">
   <img src="img/fmm_social.jpg">
 </div>
