@@ -314,10 +314,11 @@ degenerate value under the single `finite && > 0` predicate. Inferred readings a
 - [x] **Sigma validity + per-point fallback (resolved 2026-08-13).** Sentinel `-1`; predicate
       `finite(reported) && reported > 0`; invalid → global `gps_error` emission + global `k`/`radius`
       admission (see *Per-point fallback* above).
-- [~] Concrete defaults for `scale`/`c`/`k_max`/`sigma_floor`/`sigma_cap` + tuning approach
-      (car global error 150 m vs walk 25 m). **Protocol defined 2026-08-13** — see
-      [Accuracy-distribution data (car)](#accuracy-distribution-data-car--parameter-setting-protocol-2026-08-13);
-      values pending the parquet bundle.
+- [~] Concrete defaults for `scale`/`c`/`k_max`/`sigma_net`/`sigma_cap` + tuning approach. **Proposed
+      from landed data 2026-08-14** — see [Values from the landed data](#values-from-the-landed-data-2026-08-14):
+      `scale=1.0`, `sigma_net≈7`, `sigma_cap=150`, `c=3.0`, `k=8`, `k_max≈24`. `sigma_floor` retired for a
+      quadrature `sigma_net`. **Still open:** which source (ds24/pulse/merged) feeds production — gates
+      `sigma_cap`/`k_max`; and the dense-SA2 band-crowding run to finalize `k_max`.
 - [x] Column naming (resolved 2026-08-13): **`accuracy`**, value **always in metres** by contract → no
       column-unit config or conversion; directly comparable to map units under the metric-CRS precondition,
       so `scale ≈ 1` is meaningful. (Absent-column fallback still covers legacy/non-car inputs per D1.)
@@ -400,8 +401,49 @@ Notes: floor/cap read off the **`measured`** split *only* — every `implied_slo
       → revisit the heuristic only then. Consequence: slow-seg points route to the global fallback (car
       `gps_error` ≈ 150 m, loose) — the conservative choice vs trusting one seeding fix's tight value across a dwell.
 
+### Values from the landed data (2026-08-14)
+
+The parquet bundle landed (`claude_data/car_gps_accuracy/`, 8 outputs). It is **not** 2 runs — it's a
+grid of {run 8/9/10/11} × {`ds24`, `pulse`} × 8 states, ~1.9 B valid car points for 2024. Read via a
+standalone duckdb CLI (no pandas/pip in the env). Findings:
+
+- **Gates pass.** No `unmatched`/`provenance_unset` rows. Only `measured` + `tunnel_synthetic` classes
+  exist (no `implied_slow_seg` in this extraction). `value_spikes` is **clean** — top values are small
+  plausible fixes (`4.0, 3.8, 5.0…`), **no round-constant default-fill** → the trivial `finite && >0`
+  predicate + upstream sentineling hold; no C++ magnitude/share heuristic needed.
+- **Engagement is near-total.** Invalid ≈ 0.1% per source; **99.3–99.5% of trips fully valid**;
+  fully-invalid trips = 12.8 k (ds24) / **9** (pulse). The per-point path does real work, not a fallback.
+- **`tunnel_synthetic` = all null** (n_valid 0) in every state → confirms Task 2 must write an explicit
+  value or every tunnel point hits the loose fallback.
+- **Two sources, hard ceilings (censoring).** `pulse` saturates at **75 m** (p99 48–69,
+  `share_over_150m = 0` everywhere); `ds24` at **500 m** (p99 135–300, `share_over_150m` 1–2.4%, up to
+  **3.7%** in CBD SA2s — Royal Botanic Gardens, Docklands, Southbank). Values *at* the ceiling are
+  censored, not real. ds24 is ~53% integer-quantized (real, not fills); pulse ~15%.
+- **~55% of points report < 5 m**; urban tail heavier than rural (ds24 capital p90 41 m vs rural 18 m)
+  → framing A confirmed. **`k_max` cost is a ds24-CBD phenomenon only** (pulse never makes a wide band).
+
+**Design change — floor becomes a network-geometry term (revives parked Option 4).** Emission `dist` is
+measured to the link **centerline**; even a perfect fix sits ~5–10 m off it (digitization + lane/
+carriageway offset, worst on divided roads mapped as one centerline). So the low-end floor is a **real
+positional budget**, not a degenerate guard, and a low hard floor *inverts* the parallel-road fix (a true
+but network-offset link 10 m away: floor 2 m → emission 4e-6, link nuked; `sigma_net` 7 m → 0.36, link
+survives). Adopt the **quadrature** model, retiring the separate `sigma_floor`:
+
+```
+sigma_i = min( sigma_cap , sqrt( sigma_net² + (scale · reported_i)² ) )
+```
+
+**Proposed defaults** (car; tune on match quality): `scale = 1.0`; **`sigma_net ≈ 7 m`** (tune 5–10,
+network+lane geometry); `sigma_cap = 150 m` (clips ds24 censored tail, aligns car global 150 m, leaves
+pulse ≤75 untouched); `c = 3.0`; `k = 8`, **`k_max ≈ 24`** (finalize with the dense-SA2 band-crowding
+run); invalid → global `gps_error`.
+
+**Open (blocks cap/k_max finalization):** which source feeds the production car match — `ds24`, `pulse`,
+or both merged? pulse-only makes `sigma_cap`/`k_max` nearly inert (75 m ceiling); ds24/merged makes the
+1–3% CBD tail to 500 m real work.
+
 ## Discarded Ideas
 
 | Idea | Reason discarded |
 |---|---|
-| _(none yet)_ | |
+| Low hard `sigma_floor` (2–3 m) | Ignores irreducible network-centerline + lane offset (~5–10 m); would over-reject the true link where geometry, not GPS, dominates the residual. Replaced by quadrature `sigma_net`. |
