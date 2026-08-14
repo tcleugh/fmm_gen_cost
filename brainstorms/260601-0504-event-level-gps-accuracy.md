@@ -314,11 +314,11 @@ degenerate value under the single `finite && > 0` predicate. Inferred readings a
 - [x] **Sigma validity + per-point fallback (resolved 2026-08-13).** Sentinel `-1`; predicate
       `finite(reported) && reported > 0`; invalid → global `gps_error` emission + global `k`/`radius`
       admission (see *Per-point fallback* above).
-- [~] Concrete defaults for `scale`/`c`/`k_max`/`sigma_net`/`sigma_cap` + tuning approach. **Proposed
-      from landed data 2026-08-14** — see [Values from the landed data](#values-from-the-landed-data-2026-08-14):
-      `scale=1.0`, `sigma_net≈7`, `sigma_cap=150`, `c=3.0`, `k=8`, `k_max≈24`. `sigma_floor` retired for a
-      quadrature `sigma_net`. **Still open:** which source (ds24/pulse/merged) feeds production — gates
-      `sigma_cap`/`k_max`; and the dense-SA2 band-crowding run to finalize `k_max`.
+- [x] Concrete defaults for `scale`/`c`/`k_max`/`sigma_net`/`sigma_cap` (resolved 2026-08-14) — see
+      [Values from the landed data](#values-from-the-landed-data-2026-08-14): `scale=1.0`, `sigma_net≈7`,
+      `sigma_cap=150`, `c=3.0`, `k=8`, `k_max≈24`; `sigma_floor` retired for quadrature `sigma_net`. Both
+      sources feed production (merged) → cap/`k_max` active. Remaining: the dense-SA2 band-crowding
+      measurement finalizes `k_max` during Task 1 (tuning check, not a gate); all values tuned on match quality.
 - [x] Column naming (resolved 2026-08-13): **`accuracy`**, value **always in metres** by contract → no
       column-unit config or conversion; directly comparable to map units under the metric-CRS precondition,
       so `scale ≈ 1` is meaningful. (Absent-column fallback still covers legacy/non-car inputs per D1.)
@@ -438,9 +438,11 @@ network+lane geometry); `sigma_cap = 150 m` (clips ds24 censored tail, aligns ca
 pulse ≤75 untouched); `c = 3.0`; `k = 8`, **`k_max ≈ 24`** (finalize with the dense-SA2 band-crowding
 run); invalid → global `gps_error`.
 
-**Open (blocks cap/k_max finalization):** which source feeds the production car match — `ds24`, `pulse`,
-or both merged? pulse-only makes `sigma_cap`/`k_max` nearly inert (75 m ceiling); ds24/merged makes the
-1–3% CBD tail to 500 m real work.
+**Resolved 2026-08-14: both sources feed production (merged).** The matcher sees ds24's 1–3% CBD tail to
+500 m alongside pulse, so `sigma_cap = 150` and `k_max` both do real work. Starting `k_max ≈ 24`,
+finalized by the dense-SA2 **band-crowding measurement** during Task 1 — count edges admitted within
+`c·sigma` in the Melbourne/Sydney CBD network (a network-density property the parquet can't give), pick
+`k_max` where the O(k²) routing cost is tolerable and the true edge is rarely cut. A tuning check, not a gate.
 
 ## Discarded Ideas
 
